@@ -12,6 +12,7 @@ export type AskResponse = {
   sources: Citation[];
   usedGemini: boolean;
   userId: string | null;
+  conversationId: string | null;
 };
 
 export type DraftInput = {
@@ -28,4 +29,22 @@ export type DraftResponse = {
   draft: string;
   sources: Citation[];
   usedGemini: boolean;
+  conversationId: string | null;
+};
+
+export type Conversation = {
+  id: string;
+  userId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ConversationMessage = {
+  id: string;
+  conversationId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  citations: Citation[];
+  createdAt: string;
 };

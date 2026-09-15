@@ -32,6 +32,8 @@ This project initializes the SprintX BD Assistant Milestone 1 foundation: a loca
 - `POST /api/draft`
 - `GET/POST /api/users` (admin-provisioned when hosted auth is enabled)
 - `POST/DELETE /api/users/:id/api-key`
+- `GET/POST /api/conversations`
+- `GET /api/conversations/:id/messages`
 
 ## Supabase and Vercel deployment
 
@@ -64,6 +66,6 @@ The Vercel project must allow the extension origin for CORS. The current backend
 
 ## Notes
 
-The deployed backend now supports authenticated Ask and Draft workflows. Production Google Drive synchronization, conversation history, and an admin dashboard remain future milestones.
+The deployed backend now supports authenticated Ask, Draft, and persistent conversation workflows. An admin dashboard remains a future milestone.
 
 To enable Google Drive sync, share the source folder with the service-account email and configure `GOOGLE_DRIVE_FOLDER_ID` plus `GOOGLE_SERVICE_ACCOUNT_JSON` in Vercel. The JSON value must contain the service account's `client_email` and `private_key`; keep it server-side and never add it to the extension.

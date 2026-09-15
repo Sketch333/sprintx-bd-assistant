@@ -40,3 +40,23 @@ create table if not exists public.kb_chunks (
 
 create index if not exists kb_chunks_embedding_idx
   on public.kb_chunks using ivfflat (embedding vector_cosine_ops) with (lists = 10);
+
+create table if not exists public.conversations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  title text not null default 'New conversation',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.conversation_messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.conversations(id) on delete cascade,
+  role text not null check (role in ('user', 'assistant')),
+  content text not null,
+  citations jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists conversations_user_updated_idx on public.conversations(user_id, updated_at desc);
+create index if not exists conversation_messages_conversation_created_idx on public.conversation_messages(conversation_id, created_at);

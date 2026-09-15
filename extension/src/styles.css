@@ -25,6 +25,7 @@ h3 { color: #65708a; font-size: 12px; letter-spacing: .08em; text-transform: upp
 .primary-button:disabled { cursor: not-allowed; opacity: .55; }
 .full { width: 100%; }
 .intro { margin-bottom: 18px; }
+.conversation-label { color: #8a93a8; font-size: 11px; margin: -8px 0 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tabs { background: #e9edf7; border-radius: 10px; display: flex; gap: 4px; margin-bottom: 18px; padding: 4px; }
 .tab { background: transparent; border: 0; border-radius: 7px; color: #65708a; cursor: pointer; flex: 1; font-weight: 750; padding: 9px; }
 .tab.active { background: #fff; box-shadow: 0 2px 7px #24355b14; color: #5367d8; }

@@ -34,6 +34,20 @@ test('protected endpoints return 401 when authentication is missing', async () =
           }),
         });
 
+        test('conversation history rejects unauthenticated requests', async () => {
+          const app = require('../src/server').default as import('express').Express;
+          const server = app.listen(0);
+
+          try {
+            const { port } = server.address() as AddressInfo;
+            const response = await fetch(`http://127.0.0.1:${port}/api/conversations`);
+            assert.equal(response.status, 401);
+            assert.deepEqual(await response.json(), { ok: false, error: 'Authentication required' });
+          } finally {
+            await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
+          }
+        });
+
         assert.equal(response.status, 401);
         assert.deepEqual(await response.json(), { ok: false, error: 'Authentication required' });
       } finally {

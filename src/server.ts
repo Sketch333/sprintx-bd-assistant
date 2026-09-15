@@ -7,6 +7,7 @@ import { answerQuestion } from './lib/ask-service';
 import { createDraft } from './lib/draft-service';
 import { createUser, getUserApiKey, getUserById, listUsers, removeUserApiKey, setUserApiKey } from './lib/user-store';
 import { createVectorStore } from './lib/vector-store';
+import { appendConversationMessages, createConversation, getConversationMessages, listConversations } from './lib/conversation-store';
 
 const app = express();
 const vectorStorePromise = createVectorStore();
@@ -46,6 +47,7 @@ const askSchema = z.object({
   question: z.string().min(1),
   limit: z.number().int().min(1).max(10).optional(),
   userId: z.string().optional(),
+  conversationId: z.string().uuid().optional(),
 });
 
 const draftSchema = z.object({
@@ -55,6 +57,7 @@ const draftSchema = z.object({
   tone: z.enum(['professional', 'friendly', 'persuasive', 'concise']).default('professional'),
   length: z.enum(['short', 'medium', 'long']).default('medium'),
   context: z.string().max(2000).optional(),
+  conversationId: z.string().uuid().optional(),
 });
 
 const createUserSchema = z.object({
@@ -214,7 +217,7 @@ app.post('/api/ask', async (req: Request, res: Response) => {
       return res.status(400).json({ ok: false, error: parse.error.issues });
     }
 
-    const { question, limit = 5, userId: requestedUserId } = parse.data;
+    const { question, limit = 5, userId: requestedUserId, conversationId } = parse.data;
     const authenticatedUser = await authenticateRequest(req.headers.authorization);
     const userId = requestedUserId ?? authenticatedUser?.id;
     if (config.requireAuth && (!authenticatedUser || (userId && userId !== authenticatedUser.id))) {
@@ -235,7 +238,13 @@ app.post('/api/ask', async (req: Request, res: Response) => {
 
     const answer = await answerQuestion(question, results, apiKey);
 
-    return res.json({ ok: true, question, answer: answer.answer, sources: answer.sources, usedGemini: answer.usedGemini, userId: userId ?? null });
+    if (conversationId && authenticatedUser) {
+      await appendConversationMessages(authenticatedUser.id, conversationId, [
+        { role: 'user', content: question },
+        { role: 'assistant', content: answer.answer, citations: answer.sources },
+      ]);
+    }
+    return res.json({ ok: true, question, answer: answer.answer, sources: answer.sources, usedGemini: answer.usedGemini, userId: userId ?? null, conversationId: conversationId ?? null });
   } catch (error) {
     return sendError(res, error, 'Unknown ask error');
   }
@@ -257,10 +266,48 @@ app.post('/api/draft', async (req: Request, res: Response) => {
     const results = await store.search(`${parse.data.audience} ${parse.data.objective} ${parse.data.context ?? ''}`, 5);
     const apiKey = authenticatedUser ? await getUserApiKey(authenticatedUser.id) : undefined;
     const result = await createDraft(parse.data, results, apiKey);
+    if (parse.data.conversationId && authenticatedUser) {
+      await appendConversationMessages(authenticatedUser.id, parse.data.conversationId, [
+        { role: 'user', content: `Draft request: ${parse.data.audience} — ${parse.data.objective}` },
+        { role: 'assistant', content: result.draft, citations: result.sources },
+      ]);
+    }
 
-    return res.json({ ok: true, ...result });
+    return res.json({ ok: true, ...result, conversationId: parse.data.conversationId ?? null });
   } catch (error) {
     return sendError(res, error, 'Unknown draft error');
+  }
+});
+
+app.get('/api/conversations', async (req: Request, res: Response) => {
+  try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (!user) return res.status(401).json({ ok: false, error: 'Authentication required' });
+    return res.json({ ok: true, conversations: await listConversations(user.id) });
+  } catch (error) {
+    return sendError(res, error, 'Unknown conversation listing error');
+  }
+});
+
+app.post('/api/conversations', async (req: Request, res: Response) => {
+  try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (!user) return res.status(401).json({ ok: false, error: 'Authentication required' });
+    const title = typeof req.body?.title === 'string' && req.body.title.trim() ? req.body.title.trim().slice(0, 120) : undefined;
+    return res.status(201).json({ ok: true, conversation: await createConversation(user.id, title) });
+  } catch (error) {
+    return sendError(res, error, 'Unknown conversation creation error');
+  }
+});
+
+app.get('/api/conversations/:id/messages', async (req: Request, res: Response) => {
+  try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (!user) return res.status(401).json({ ok: false, error: 'Authentication required' });
+    const conversationId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    return res.json({ ok: true, messages: await getConversationMessages(user.id, conversationId) });
+  } catch (error) {
+    return sendError(res, error, 'Unknown conversation message error');
   }
 });
 

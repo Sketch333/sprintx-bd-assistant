@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { ApiError, askAssistant, draftMessage } from './api';
+import { ApiError, askAssistant, createConversation, draftMessage, listConversations } from './api';
 import { signInWithGoogle, supabase } from './supabase';
 import type { AskResponse, DraftInput, DraftResponse } from './types';
 
@@ -23,6 +23,8 @@ export function App() {
   const [asking, setAsking] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
+  const [conversationId, setConversationId] = useState<string>();
+  const [conversationTitle, setConversationTitle] = useState('New conversation');
 
   useEffect(() => {
     let active = true;
@@ -40,6 +42,29 @@ export function App() {
       listener.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!session?.access_token) {
+      setConversationId(undefined);
+      return;
+    }
+    let active = true;
+    listConversations(session.access_token)
+      .then(async ({ conversations }) => {
+        if (!active) return;
+        const latest = conversations[0] ?? (await createConversation(session.access_token, 'SprintX workspace')).conversation;
+        if (active) {
+          setConversationId(latest.id);
+          setConversationTitle(latest.title);
+        }
+      })
+      .catch((conversationError) => {
+        if (active) setError(conversationError instanceof Error ? conversationError.message : 'Conversation history is unavailable.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [session?.access_token]);
 
   async function handleSignIn() {
     setError('');
@@ -67,7 +92,7 @@ export function App() {
     setError('');
     setAsking(true);
     try {
-      setResult(await askAssistant(trimmedQuestion, session.access_token));
+      setResult(await askAssistant(trimmedQuestion, session.access_token, conversationId));
     } catch (askError) {
       if (askError instanceof ApiError && askError.status === 401) {
         await supabase.auth.signOut();
@@ -91,7 +116,7 @@ export function App() {
         audience: draft.audience.trim(),
         objective: draft.objective.trim(),
         context: draft.context?.trim() || undefined,
-      }, session.access_token));
+      }, session.access_token, conversationId));
     } catch (draftError) {
       if (draftError instanceof ApiError && draftError.status === 401) await supabase.auth.signOut();
       setError(draftError instanceof Error ? draftError.message : 'The draft request failed.');
@@ -131,6 +156,7 @@ export function App() {
             <button className={mode === 'ask' ? 'tab active' : 'tab'} onClick={() => setMode('ask')} type="button">Ask</button>
             <button className={mode === 'draft' ? 'tab active' : 'tab'} onClick={() => setMode('draft')} type="button">Draft</button>
           </div>
+          <p className="conversation-label">Conversation: {conversationTitle}</p>
           <section className="intro">
             <p>{mode === 'ask' ? 'Ask about SprintX services, positioning, case studies, or outreach strategy.' : 'Create a grounded outreach message using SprintX knowledge.'}</p>
           </section>

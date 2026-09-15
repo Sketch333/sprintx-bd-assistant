@@ -1,4 +1,4 @@
-import type { AskResponse, DraftInput, DraftResponse } from './types';
+import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftResponse } from './types';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '');
 
@@ -38,10 +38,32 @@ async function postJson<T>(path: string, body: unknown, accessToken: string, sig
   return payload as T;
 }
 
-export function askAssistant(question: string, accessToken: string, signal?: AbortSignal): Promise<AskResponse> {
-  return postJson<AskResponse>('/api/ask', { question, limit: 5 }, accessToken, signal);
+export function askAssistant(question: string, accessToken: string, conversationId?: string, signal?: AbortSignal): Promise<AskResponse> {
+  return postJson<AskResponse>('/api/ask', { question, limit: 5, conversationId }, accessToken, signal);
 }
 
-export function draftMessage(input: DraftInput, accessToken: string, signal?: AbortSignal): Promise<DraftResponse> {
-  return postJson<DraftResponse>('/api/draft', input, accessToken, signal);
+export function draftMessage(input: DraftInput, accessToken: string, conversationId?: string, signal?: AbortSignal): Promise<DraftResponse> {
+  return postJson<DraftResponse>('/api/draft', { ...input, conversationId }, accessToken, signal);
+}
+
+export function listConversations(accessToken: string): Promise<{ ok: true; conversations: Conversation[] }> {
+  return getJson('/api/conversations', accessToken);
+}
+
+export function createConversation(accessToken: string, title?: string): Promise<{ ok: true; conversation: Conversation }> {
+  return postJson('/api/conversations', { title }, accessToken);
+}
+
+export function getConversationMessages(accessToken: string, conversationId: string): Promise<{ ok: true; messages: ConversationMessage[] }> {
+  return getJson(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, accessToken);
+}
+
+async function getJson<T>(path: string, accessToken: string): Promise<T> {
+  if (!apiBaseUrl) throw new ApiError('The API URL is not configured for this extension build.', 0);
+  const response = await fetch(`${apiBaseUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const payload: unknown = await response.json().catch(() => undefined);
+  if (!response.ok || !payload || typeof payload !== 'object' || !('ok' in payload) || payload.ok !== true) {
+    throw new ApiError(readError(payload), response.status);
+  }
+  return payload as T;
 }
