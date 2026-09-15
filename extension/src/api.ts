@@ -1,4 +1,4 @@
-import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftResponse, ProfileResponse } from './types';
+import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftResponse, ProfileResponse, ProvisionedUser } from './types';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '');
 
@@ -60,6 +60,18 @@ export function getConversationMessages(accessToken: string, conversationId: str
 
 export function getProfile(accessToken: string): Promise<ProfileResponse> {
   return getJson('/api/me', accessToken);
+}
+
+export function listUsers(accessToken: string): Promise<{ ok: true; users: ProvisionedUser[] }> {
+  return getJson('/api/users', accessToken);
+}
+
+export function createUser(accessToken: string, input: { email: string; name: string; role: 'admin' | 'intern' }): Promise<{ ok: true; user: ProvisionedUser }> {
+  return postJson('/api/users', input, accessToken);
+}
+
+export function syncKnowledgeBase(accessToken: string): Promise<{ ok: true; result: { drive: unknown; sites: unknown } }> {
+  return postJson('/api/kb/ingest', {}, accessToken);
 }
 
 export function setGeminiKey(accessToken: string, apiKey: string): Promise<{ ok: true; geminiKeyConfigured: true }> {

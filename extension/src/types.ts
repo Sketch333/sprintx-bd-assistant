@@ -54,3 +54,12 @@ export type ProfileResponse = {
   user: { id: string; email: string; name: string; role: 'admin' | 'intern' };
   geminiKeyConfigured: boolean;
 };
+
+export type ProvisionedUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'intern';
+  createdAt: string;
+  updatedAt: string;
+};

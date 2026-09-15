@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { ApiError, askAssistant, createConversation, draftMessage, getProfile, listConversations, removeGeminiKey, setGeminiKey } from './api';
+import { ApiError, askAssistant, createConversation, createUser, draftMessage, getProfile, listConversations, listUsers, removeGeminiKey, setGeminiKey, syncKnowledgeBase } from './api';
 import { signInWithGoogle, supabase } from './supabase';
-import type { AskResponse, DraftInput, DraftResponse } from './types';
+import type { AskResponse, DraftInput, DraftResponse, ProvisionedUser } from './types';
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -29,6 +29,12 @@ export function App() {
   const [geminiKey, setGeminiKeyValue] = useState('');
   const [keyConfigured, setKeyConfigured] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
+  const [role, setRole] = useState<'admin' | 'intern'>();
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [users, setUsers] = useState<ProvisionedUser[]>([]);
+  const [newUser, setNewUser] = useState({ email: '', name: '', role: 'intern' as 'admin' | 'intern' });
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -73,7 +79,10 @@ export function App() {
   useEffect(() => {
     if (!session?.access_token) return;
     getProfile(session.access_token)
-      .then((profile) => setKeyConfigured(profile.geminiKeyConfigured))
+      .then((profile) => {
+        setKeyConfigured(profile.geminiKeyConfigured);
+        setRole(profile.user.role);
+      })
       .catch(() => undefined);
   }, [session?.access_token]);
 
@@ -124,6 +133,53 @@ export function App() {
       setError(keyError instanceof Error ? keyError.message : 'Could not remove the Gemini key.');
     } finally {
       setSavingKey(false);
+    }
+
+  }
+
+  async function openAdmin() {
+    if (!session?.access_token) return;
+    setAdminOpen(!adminOpen);
+    if (adminOpen) return;
+    setAdminBusy(true);
+    setError('');
+    try {
+      setUsers((await listUsers(session.access_token)).users);
+    } catch (adminError) {
+      setError(adminError instanceof Error ? adminError.message : 'Admin controls are unavailable.');
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
+  async function handleCreateUser(event: FormEvent) {
+    event.preventDefault();
+    if (!session?.access_token || !newUser.email.trim() || !newUser.name.trim()) return;
+    setAdminBusy(true);
+    setError('');
+    try {
+      const created = await createUser(session.access_token, { ...newUser, email: newUser.email.trim(), name: newUser.name.trim() });
+      setUsers((current) => [...current, created.user]);
+      setNewUser({ email: '', name: '', role: 'intern' });
+    } catch (adminError) {
+      setError(adminError instanceof Error ? adminError.message : 'Could not provision user.');
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
+  async function handleSync() {
+    if (!session?.access_token) return;
+    setAdminBusy(true);
+    setSyncMessage('');
+    setError('');
+    try {
+      const response = await syncKnowledgeBase(session.access_token);
+      setSyncMessage(`Ingestion complete: ${JSON.stringify(response.result)}`);
+    } catch (syncError) {
+      setError(syncError instanceof Error ? syncError.message : 'Knowledge-base sync failed.');
+    } finally {
+      setAdminBusy(false);
     }
   }
 
@@ -180,7 +236,7 @@ export function App() {
           <p className="eyebrow">SPRINTX</p>
           <h1>BD Assistant</h1>
         </div>
-        {session && <div className="header-actions"><button className="text-button" onClick={() => setSettingsOpen(!settingsOpen)}>Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></div>}
+        {session && <div className="header-actions">{role === 'admin' && <button className="text-button" onClick={openAdmin}>Admin</button>}<button className="text-button" onClick={() => setSettingsOpen(!settingsOpen)}>Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></div>}
       </header>
 
       {!session ? (
@@ -194,6 +250,22 @@ export function App() {
         </section>
       ) : (
         <>
+          {adminOpen && <section className="card settings-card">
+            <h2>Admin controls</h2>
+            <p className="muted">Provision users and refresh the configured knowledge sources.</p>
+            <form className="ask-form" onSubmit={handleCreateUser}>
+              <label htmlFor="new-user-name">Name</label>
+              <input id="new-user-name" value={newUser.name} onChange={(event) => setNewUser({ ...newUser, name: event.target.value })} placeholder="Team member name" />
+              <label htmlFor="new-user-email">Email</label>
+              <input id="new-user-email" type="email" value={newUser.email} onChange={(event) => setNewUser({ ...newUser, email: event.target.value })} placeholder="team.member@example.com" />
+              <label htmlFor="new-user-role">Role</label>
+              <select id="new-user-role" value={newUser.role} onChange={(event) => setNewUser({ ...newUser, role: event.target.value as 'admin' | 'intern' })}><option value="intern">Intern</option><option value="admin">Admin</option></select>
+              <button className="primary-button full" type="submit" disabled={adminBusy || !newUser.name.trim() || !newUser.email.trim()}>Provision user</button>
+            </form>
+            <button className="primary-button full" type="button" onClick={handleSync} disabled={adminBusy}>{adminBusy ? 'Working...' : 'Run knowledge sync'}</button>
+            {syncMessage && <p className="key-status">{syncMessage}</p>}
+            <div className="user-list">{users.map((user) => <div className="user-row" key={user.id}><span>{user.name}<small>{user.email}</small></span><strong>{user.role}</strong></div>)}</div>
+          </section>}
           {settingsOpen && <section className="card settings-card">
             <h2>Gemini key</h2>
             <p className="muted">Your key is encrypted on the backend and is never stored in this extension.</p>

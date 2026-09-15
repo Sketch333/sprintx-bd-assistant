@@ -23,6 +23,10 @@ h3 { color: #65708a; font-size: 12px; letter-spacing: .08em; text-transform: upp
 .key-status { color: #5367d8; font-size: 13px; font-weight: 700; }
 .danger-button { background: #fff0f0; border: 1px solid #f3c4c4; border-radius: 10px; color: #a33a3a; cursor: pointer; font-weight: 750; padding: 11px 16px; }
 .danger-button:disabled { cursor: not-allowed; opacity: .55; }
+.user-list { border-top: 1px solid #edf0f5; margin-top: 16px; }
+.user-row { align-items: center; border-bottom: 1px solid #edf0f5; display: flex; font-size: 13px; justify-content: space-between; padding: 10px 0; }
+.user-row small { color: #65708a; display: block; font-size: 11px; margin-top: 3px; }
+.user-row strong { color: #5367d8; font-size: 11px; text-transform: uppercase; }
 .auth-card { margin-top: 42px; padding: 28px 20px; }
 .brand-mark { align-items: center; background: #5367d8; border-radius: 12px; color: #fff; display: flex; font-size: 24px; font-weight: 800; height: 52px; justify-content: center; margin: 0 auto 18px; width: 52px; }
 .muted, .intro, .empty-state { color: #65708a; font-size: 14px; line-height: 1.5; }

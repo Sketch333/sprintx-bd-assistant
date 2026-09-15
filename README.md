@@ -68,6 +68,8 @@ The Vercel project must allow the extension origin for CORS. The current backend
 
 The extension Settings view can save, replace, or remove a user's Gemini key. The raw key is sent over HTTPS to the backend, encrypted there, and never returned or stored in the extension.
 
+Admins also have an Admin view for provisioning users and starting the existing authenticated knowledge-base ingestion. The backend remains the source of truth for authorization.
+
 ## Notes
 
 The deployed backend now supports authenticated Ask, Draft, and persistent conversation workflows. An admin dashboard remains a future milestone.
