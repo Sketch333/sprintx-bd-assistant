@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { MemoryVectorStore } from '../src/lib/vector-store';
+import { createSiteSourceId } from '../src/lib/ingest';
+
+test('website source IDs are stable for the same URL', () => {
+  assert.equal(createSiteSourceId('https://sprintx.net/'), createSiteSourceId('https://sprintx.net/'));
+  assert.notEqual(createSiteSourceId('https://sprintx.net/'), createSiteSourceId('https://sprintx.net/about'));
+});
 
 test('source reconciliation removes stale Drive sources and chunks only', async () => {
   const store = new MemoryVectorStore();

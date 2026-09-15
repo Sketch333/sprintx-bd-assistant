@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -26,6 +26,7 @@ export async function ingestDriveFolder(rootDirectory: string, vectorStore: Vect
     await vectorStore.addSource(source);
 
     const chunks = chunkText(text);
+    const activeChunkIds = new Set<string>();
     for (const [index, chunk] of chunks.entries()) {
       const chunkRecord: KnowledgeChunk = {
         id: `${source.id}-chunk-${index}`,
@@ -43,8 +44,10 @@ export async function ingestDriveFolder(rootDirectory: string, vectorStore: Vect
       };
 
       await vectorStore.addChunk(chunkRecord);
+      activeChunkIds.add(chunkRecord.id);
       chunkCount += 1;
     }
+    await vectorStore.removeChunksExcept(source.id, activeChunkIds);
   }
 
   const stats = await vectorStore.getStats();
@@ -71,7 +74,7 @@ export async function crawlSiteUrls(urls: string[], vectorStore: VectorStore): P
 
       const hostname = new URL(url).hostname;
       const source: SourceRecord = {
-        id: `site-${randomUUID()}`,
+        id: createSiteSourceId(url),
         sourceType: 'site',
         sourceTitle: hostname,
         sourcePath: url,
@@ -88,6 +91,7 @@ export async function crawlSiteUrls(urls: string[], vectorStore: VectorStore): P
       crawledCount += 1;
 
       const chunks = chunkText(text);
+      const activeChunkIds = new Set<string>();
       for (const [index, chunk] of chunks.entries()) {
         const chunkRecord: KnowledgeChunk = {
           id: `${source.id}-chunk-${index}`,
@@ -105,8 +109,10 @@ export async function crawlSiteUrls(urls: string[], vectorStore: VectorStore): P
         };
 
         await vectorStore.addChunk(chunkRecord);
+        activeChunkIds.add(chunkRecord.id);
         chunkCount += 1;
       }
+      await vectorStore.removeChunksExcept(source.id, activeChunkIds);
     } catch (error) {
       console.warn(`Failed to crawl ${url}:`, error);
     }
@@ -244,9 +250,11 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
     };
     await vectorStore.addSource(source);
 
+    const activeChunkIds = new Set<string>();
     for (const [index, chunk] of chunkText(text).entries()) {
+      const chunkId = `${sourceId}-chunk-${index}`;
       await vectorStore.addChunk({
-        id: `${sourceId}-chunk-${index}`,
+        id: chunkId,
         content: chunk,
         sourceId,
         sourcePath: source.sourcePath,
@@ -256,8 +264,10 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
         chunkIndex: index,
         metadata: { driveFileId: file.id, modifiedTime: file.modifiedTime ?? null },
       });
+      activeChunkIds.add(chunkId);
       chunkCount += 1;
     }
+    await vectorStore.removeChunksExcept(sourceId, activeChunkIds);
   }
 
   const removed = await vectorStore.removeSourcesExcept('gdrive-', activeSourceIds);
@@ -387,6 +397,10 @@ function buildSourceRecord(filePath: string, content: string): SourceRecord {
       contentLength: content.length,
     },
   };
+}
+
+export function createSiteSourceId(url: string): string {
+  return `site-${createHash('sha256').update(url).digest('hex').slice(0, 24)}`;
 }
 
 export async function runFullIngest(vectorStore: VectorStore, options?: { driveRoot?: string; siteUrls?: string[] }): Promise<{ drive: { discovered: number; chunks: number; sources: number }; sites: { crawled: number; chunks: number; sources: number } }> {

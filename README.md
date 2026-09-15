@@ -73,6 +73,8 @@ JSON request bodies are limited to `100kb` by default to prevent accidental or a
 
 Google Drive sync recursively scans the configured folder and its subfolders. Each Drive file uses a stable `gdrive-<file-id>` source ID; a successful sync removes previously indexed Drive sources that are no longer present or readable in the configured folder, while leaving website and local sources untouched.
 
+Website crawling also uses stable URL-derived source IDs and replaces stale chunks for an existing source, so repeated crawls update knowledge instead of accumulating duplicate content.
+
 The extension Settings view can save, replace, or remove a user's Gemini key. The raw key is sent over HTTPS to the backend, encrypted there, and never returned or stored in the extension.
 
 Admins also have an Admin view for provisioning users and independently syncing Google Drive or crawling configured websites. The backend remains the source of truth for authorization.

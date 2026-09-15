@@ -8,6 +8,7 @@ import { generateEmbedding } from './embeddings';
 export interface VectorStore {
   addSource(source: SourceRecord): Promise<void>;
   addChunk(chunk: KnowledgeChunk): Promise<void>;
+  removeChunksExcept(sourceId: string, chunkIds: Set<string>): Promise<number>;
   removeSourcesExcept(prefix: string, sourceIds: Set<string>): Promise<number>;
   search(query: string, limit?: number): Promise<SearchResult[]>;
   getStats(): Promise<{ chunkCount: number; sourceCount: number }>;
@@ -25,6 +26,14 @@ export class MemoryVectorStore implements VectorStore {
   async addChunk(chunk: KnowledgeChunk): Promise<void> {
     this.chunks.push(chunk);
     this.embeddings.set(chunk.id, await generateEmbedding(chunk.content));
+  }
+
+  async removeChunksExcept(sourceId: string, chunkIds: Set<string>): Promise<number> {
+    const staleChunks = this.chunks.filter((chunk) => chunk.sourceId === sourceId && !chunkIds.has(chunk.id));
+    const staleIds = new Set(staleChunks.map((chunk) => chunk.id));
+    this.chunks = this.chunks.filter((chunk) => !staleIds.has(chunk.id));
+    staleIds.forEach((id) => this.embeddings.delete(id));
+    return staleIds.size;
   }
 
   async removeSourcesExcept(prefix: string, sourceIds: Set<string>): Promise<number> {
@@ -174,6 +183,19 @@ export class PgVectorStore implements VectorStore {
         JSON.stringify(chunk.metadata ?? {}),
       ],
     );
+  }
+
+  async removeChunksExcept(sourceId: string, chunkIds: Set<string>): Promise<number> {
+    const { rows } = await this.pool.query(
+      `SELECT id FROM kb_chunks WHERE source_id = $1 AND NOT (id = ANY($2::text[]));`,
+      [sourceId, [...chunkIds]],
+    );
+    if (!rows.length) return 0;
+    await this.pool.query(
+      `DELETE FROM kb_chunks WHERE source_id = $1 AND NOT (id = ANY($2::text[]));`,
+      [sourceId, [...chunkIds]],
+    );
+    return rows.length;
   }
 
   async removeSourcesExcept(prefix: string, sourceIds: Set<string>): Promise<number> {
