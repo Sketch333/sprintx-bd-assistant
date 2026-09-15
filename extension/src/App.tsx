@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { ApiError, askAssistant, createConversation, draftMessage, listConversations } from './api';
+import { ApiError, askAssistant, createConversation, draftMessage, getProfile, listConversations, removeGeminiKey, setGeminiKey } from './api';
 import { signInWithGoogle, supabase } from './supabase';
 import type { AskResponse, DraftInput, DraftResponse } from './types';
 
@@ -25,6 +25,10 @@ export function App() {
   const [authenticating, setAuthenticating] = useState(false);
   const [conversationId, setConversationId] = useState<string>();
   const [conversationTitle, setConversationTitle] = useState('New conversation');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [geminiKey, setGeminiKeyValue] = useState('');
+  const [keyConfigured, setKeyConfigured] = useState(false);
+  const [savingKey, setSavingKey] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -66,6 +70,13 @@ export function App() {
     };
   }, [session?.access_token]);
 
+  useEffect(() => {
+    if (!session?.access_token) return;
+    getProfile(session.access_token)
+      .then((profile) => setKeyConfigured(profile.geminiKeyConfigured))
+      .catch(() => undefined);
+  }, [session?.access_token]);
+
   async function handleSignIn() {
     setError('');
     setAuthenticating(true);
@@ -83,6 +94,37 @@ export function App() {
     const { error: signOutError } = await supabase.auth.signOut();
     if (signOutError) setError(signOutError.message);
     setResult(null);
+    setSettingsOpen(false);
+  }
+
+  async function handleSaveKey(event: FormEvent) {
+    event.preventDefault();
+    if (!session?.access_token || !geminiKey.trim()) return;
+    setSavingKey(true);
+    setError('');
+    try {
+      await setGeminiKey(session.access_token, geminiKey.trim());
+      setGeminiKeyValue('');
+      setKeyConfigured(true);
+    } catch (keyError) {
+      setError(keyError instanceof Error ? keyError.message : 'Could not save the Gemini key.');
+    } finally {
+      setSavingKey(false);
+    }
+  }
+
+  async function handleRemoveKey() {
+    if (!session?.access_token) return;
+    setSavingKey(true);
+    setError('');
+    try {
+      await removeGeminiKey(session.access_token);
+      setKeyConfigured(false);
+    } catch (keyError) {
+      setError(keyError instanceof Error ? keyError.message : 'Could not remove the Gemini key.');
+    } finally {
+      setSavingKey(false);
+    }
   }
 
   async function handleAsk(event: FormEvent) {
@@ -138,7 +180,7 @@ export function App() {
           <p className="eyebrow">SPRINTX</p>
           <h1>BD Assistant</h1>
         </div>
-        {session && <button className="text-button" onClick={handleSignOut}>Sign out</button>}
+        {session && <div className="header-actions"><button className="text-button" onClick={() => setSettingsOpen(!settingsOpen)}>Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></div>}
       </header>
 
       {!session ? (
@@ -152,6 +194,17 @@ export function App() {
         </section>
       ) : (
         <>
+          {settingsOpen && <section className="card settings-card">
+            <h2>Gemini key</h2>
+            <p className="muted">Your key is encrypted on the backend and is never stored in this extension.</p>
+            <p className="key-status">{keyConfigured ? 'Gemini key configured' : 'No personal Gemini key configured'}</p>
+            <form className="ask-form" onSubmit={handleSaveKey}>
+              <label htmlFor="gemini-key">Replace key</label>
+              <input id="gemini-key" type="password" value={geminiKey} onChange={(event) => setGeminiKeyValue(event.target.value)} placeholder="Paste a Gemini API key" autoComplete="off" />
+              <button className="primary-button full" type="submit" disabled={savingKey || !geminiKey.trim()}>{savingKey ? 'Saving...' : 'Save encrypted key'}</button>
+            </form>
+            {keyConfigured && <button className="danger-button full" type="button" onClick={handleRemoveKey} disabled={savingKey}>Remove key</button>}
+          </section>}
           <div className="tabs" role="tablist" aria-label="Assistant mode">
             <button className={mode === 'ask' ? 'tab active' : 'tab'} onClick={() => setMode('ask')} type="button">Ask</button>
             <button className={mode === 'draft' ? 'tab active' : 'tab'} onClick={() => setMode('draft')} type="button">Draft</button>

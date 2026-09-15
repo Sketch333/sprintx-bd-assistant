@@ -48,3 +48,9 @@ export type ConversationMessage = {
   citations: Citation[];
   createdAt: string;
 };
+
+export type ProfileResponse = {
+  ok: true;
+  user: { id: string; email: string; name: string; role: 'admin' | 'intern' };
+  geminiKeyConfigured: boolean;
+};

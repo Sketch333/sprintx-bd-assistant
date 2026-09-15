@@ -32,6 +32,8 @@ This project initializes the SprintX BD Assistant Milestone 1 foundation: a loca
 - `POST /api/draft`
 - `GET/POST /api/users` (admin-provisioned when hosted auth is enabled)
 - `POST/DELETE /api/users/:id/api-key`
+- `GET /api/me`
+- `POST/DELETE /api/me/api-key`
 - `GET/POST /api/conversations`
 - `GET /api/conversations/:id/messages`
 
@@ -63,6 +65,8 @@ The first user-facing Ask workflow is in `extension/`. It uses the public Vercel
 5. Click the extension toolbar icon, sign in with Google, and ask a question.
 
 The Vercel project must allow the extension origin for CORS. The current backend accepts `chrome-extension://` origins; set `ALLOWED_EXTENSION_ORIGINS` to the exact extension origin in Vercel when you want to narrow this further.
+
+The extension Settings view can save, replace, or remove a user's Gemini key. The raw key is sent over HTTPS to the backend, encrypted there, and never returned or stored in the extension.
 
 ## Notes
 

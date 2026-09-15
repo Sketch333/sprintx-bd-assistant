@@ -210,6 +210,44 @@ app.delete('/api/users/:id/api-key', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/me', async (req: Request, res: Response) => {
+  try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (!user) return res.status(401).json({ ok: false, error: 'Authentication required' });
+    return res.json({
+      ok: true,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      geminiKeyConfigured: Boolean((await getUserById(user.id))?.apiKeyEncrypted),
+    });
+  } catch (error) {
+    return sendError(res, error, 'Unknown profile lookup error');
+  }
+});
+
+app.post('/api/me/api-key', async (req: Request, res: Response) => {
+  try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (!user) return res.status(401).json({ ok: false, error: 'Authentication required' });
+    const parsed = apiKeySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ ok: false, error: parsed.error.issues });
+    await setUserApiKey(user.id, parsed.data.apiKey);
+    return res.json({ ok: true, geminiKeyConfigured: true });
+  } catch (error) {
+    return sendError(res, error, 'Unknown API-key update error');
+  }
+});
+
+app.delete('/api/me/api-key', async (req: Request, res: Response) => {
+  try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (!user) return res.status(401).json({ ok: false, error: 'Authentication required' });
+    await removeUserApiKey(user.id);
+    return res.json({ ok: true, geminiKeyConfigured: false });
+  } catch (error) {
+    return sendError(res, error, 'Unknown API-key removal error');
+  }
+});
+
 app.post('/api/ask', async (req: Request, res: Response) => {
   try {
     const parse = askSchema.safeParse(req.body);

@@ -11,6 +11,7 @@ button, textarea { font: inherit; }
 .shell { min-height: 100vh; padding: 20px 16px 28px; }
 .centered { display: grid; place-items: center; text-align: center; }
 .header { align-items: flex-start; display: flex; justify-content: space-between; margin-bottom: 24px; }
+.header-actions { display: flex; gap: 10px; }
 .eyebrow { color: #65708a; font-size: 11px; font-weight: 800; letter-spacing: .16em; margin: 0 0 4px; }
 h1, h2, h3, p { margin-top: 0; }
 h1 { font-size: 24px; letter-spacing: -.04em; margin-bottom: 0; }
@@ -18,6 +19,10 @@ h2 { font-size: 18px; margin-bottom: 8px; }
 h3 { color: #65708a; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
 .text-button { background: none; border: 0; color: #5367d8; cursor: pointer; font-weight: 700; padding: 4px 0; }
 .card { background: #fff; border: 1px solid #e4e8f1; border-radius: 16px; box-shadow: 0 8px 24px #24355b0d; padding: 18px; }
+.settings-card { margin-bottom: 18px; }
+.key-status { color: #5367d8; font-size: 13px; font-weight: 700; }
+.danger-button { background: #fff0f0; border: 1px solid #f3c4c4; border-radius: 10px; color: #a33a3a; cursor: pointer; font-weight: 750; padding: 11px 16px; }
+.danger-button:disabled { cursor: not-allowed; opacity: .55; }
 .auth-card { margin-top: 42px; padding: 28px 20px; }
 .brand-mark { align-items: center; background: #5367d8; border-radius: 12px; color: #fff; display: flex; font-size: 24px; font-weight: 800; height: 52px; justify-content: center; margin: 0 auto 18px; width: 52px; }
 .muted, .intro, .empty-state { color: #65708a; font-size: 14px; line-height: 1.5; }
