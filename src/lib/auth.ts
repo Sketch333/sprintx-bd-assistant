@@ -7,6 +7,13 @@ export type AuthenticatedRequest = {
   user?: UserRecord;
 };
 
+export class AuthenticationError extends Error {
+  constructor(message: string, readonly statusCode: 401 | 403 = 401) {
+    super(message);
+    this.name = 'AuthenticationError';
+  }
+}
+
 const supabaseAuth = config.supabaseUrl
   ? createClient(config.supabaseUrl, process.env.SUPABASE_ANON_KEY ?? '', { auth: { autoRefreshToken: false, persistSession: false } })
   : undefined;
@@ -16,7 +23,7 @@ export async function authenticateRequest(authorization: string | undefined): Pr
     return undefined;
   }
   if (!authorization?.startsWith('Bearer ')) {
-    throw new Error('Authentication required');
+    throw new AuthenticationError('Authentication required');
   }
 
   const token = authorization.slice('Bearer '.length);
@@ -24,18 +31,18 @@ export async function authenticateRequest(authorization: string | undefined): Pr
   if (supabaseAuth) {
     const { data, error } = await supabaseAuth.auth.getUser(token);
     if (error || !data.user) {
-      throw new Error('Invalid authentication token');
+      throw new AuthenticationError('Invalid authentication token');
     }
     email = data.user.email;
   }
 
   if (!email) {
-    throw new Error('Authentication is not configured');
+    throw new AuthenticationError('Authentication is not configured');
   }
 
   const user = await getUserByEmail(email);
   if (!user) {
-    throw new Error('Authenticated user is not provisioned');
+    throw new AuthenticationError('Authenticated user is not provisioned', 403);
   }
   return user;
 }

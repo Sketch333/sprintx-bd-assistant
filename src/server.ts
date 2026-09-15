@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import { z } from 'zod';
 
 import { config } from './config';
-import { authenticateRequest, isAdmin } from './lib/auth';
+import { authenticateRequest, AuthenticationError, isAdmin } from './lib/auth';
 import { answerQuestion } from './lib/ask-service';
 import { createUser, getUserApiKey, getUserById, listUsers, removeUserApiKey, setUserApiKey } from './lib/user-store';
 import { createVectorStore } from './lib/vector-store';
@@ -35,6 +35,11 @@ const apiKeySchema = z.object({
   apiKey: z.string().min(1),
 });
 
+function sendError(res: Response, error: unknown, fallbackMessage: string): Response {
+  const status = error instanceof AuthenticationError ? error.statusCode : 500;
+  return res.status(status).json({ ok: false, error: error instanceof Error ? error.message : fallbackMessage });
+}
+
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ ok: true, status: 'healthy' });
 });
@@ -59,7 +64,7 @@ app.post('/api/kb/ingest', async (_req: Request, res: Response) => {
 
     res.json({ ok: true, result });
   } catch (error) {
-    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'Unknown ingestion error' });
+    return sendError(res, error, 'Unknown ingestion error');
   }
 });
 
@@ -76,7 +81,7 @@ app.post('/api/kb/search', async (req: Request, res: Response) => {
 
     return res.json({ ok: true, query, results });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'Unknown search error' });
+    return sendError(res, error, 'Unknown search error');
   }
 });
 
@@ -90,7 +95,7 @@ app.get('/api/users', async (_req: Request, res: Response) => {
     const users = await listUsers();
     return res.json({ ok: true, users: users.map(({ apiKeyEncrypted, apiKeyIv, apiKeyTag, ...user }) => user) });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'Unknown user listing error' });
+    return sendError(res, error, 'Unknown user listing error');
   }
 });
 
@@ -109,7 +114,7 @@ app.post('/api/users', async (req: Request, res: Response) => {
     const createdUser = await createUser(parsed.data);
     return res.json({ ok: true, user: { ...createdUser, apiKeyEncrypted: undefined, apiKeyIv: undefined, apiKeyTag: undefined } });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'Unknown user creation error' });
+    return sendError(res, error, 'Unknown user creation error');
   }
 });
 
@@ -129,7 +134,7 @@ app.post('/api/users/:id/api-key', async (req: Request, res: Response) => {
     const user = await setUserApiKey(requestedUserId, parsed.data.apiKey);
     return res.json({ ok: true, user: { ...user, apiKeyEncrypted: undefined, apiKeyIv: undefined, apiKeyTag: undefined } });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'Unknown API-key update error' });
+    return sendError(res, error, 'Unknown API-key update error');
   }
 });
 
@@ -144,7 +149,7 @@ app.delete('/api/users/:id/api-key', async (req: Request, res: Response) => {
     await removeUserApiKey(userId);
     return res.json({ ok: true });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'Unknown API-key removal error' });
+    return sendError(res, error, 'Unknown API-key removal error');
   }
 });
 
@@ -178,7 +183,7 @@ app.post('/api/ask', async (req: Request, res: Response) => {
 
     return res.json({ ok: true, question, answer: answer.answer, sources: answer.sources, usedGemini: answer.usedGemini, userId: userId ?? null });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : 'Unknown ask error' });
+    return sendError(res, error, 'Unknown ask error');
   }
 });
 
