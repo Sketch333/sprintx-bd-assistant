@@ -40,7 +40,7 @@ This project initializes the SprintX BD Assistant Milestone 1 foundation: a loca
 
 ## Supabase and Vercel deployment
 
-1. Create a Supabase project and run [`supabase/schema.sql`](./supabase/schema.sql) in the SQL editor.
+1. Create a Supabase project and run [`supabase/schema.sql`](./supabase/schema.sql) in the SQL editor. Row Level Security is enabled on users, knowledge-base, and conversation tables; the backend uses the server-only service-role key for database access, while browser clients cannot query these tables directly.
 2. Configure Google as a Supabase Auth provider and add the Vercel callback URL:
    `https://<your-project>.vercel.app/auth/v1/callback`
 3. Set the variables in [`.env.example`](./.env.example) in Vercel. Keep `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, and `USER_STORE_KEY` server-side only.

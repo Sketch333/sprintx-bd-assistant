@@ -38,6 +38,9 @@ create table if not exists public.kb_chunks (
   metadata jsonb
 );
 
+alter table public.kb_sources enable row level security;
+alter table public.kb_chunks enable row level security;
+
 create index if not exists kb_chunks_embedding_idx
   on public.kb_chunks using ivfflat (embedding vector_cosine_ops) with (lists = 10);
 
@@ -57,6 +60,9 @@ create table if not exists public.conversation_messages (
   citations jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
+
+alter table public.conversations enable row level security;
+alter table public.conversation_messages enable row level security;
 
 create index if not exists conversations_user_updated_idx on public.conversations(user_id, updated_at desc);
 create index if not exists conversation_messages_conversation_created_idx on public.conversation_messages(conversation_id, created_at);
