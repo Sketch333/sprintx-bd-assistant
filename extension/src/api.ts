@@ -71,7 +71,7 @@ export function createUser(accessToken: string, input: { email: string; name: st
 }
 
 export function syncKnowledgeBase(accessToken: string): Promise<{ ok: true; result: { drive: unknown; sites: unknown } }> {
-  return postJson('/api/kb/ingest', {}, accessToken);
+  return postJson('/api/kb/drive-sync', {}, accessToken);
 }
 
 export function setGeminiKey(accessToken: string, apiKey: string): Promise<{ ok: true; geminiKeyConfigured: true }> {

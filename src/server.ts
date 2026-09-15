@@ -97,31 +97,31 @@ app.post('/api/kb/ingest', async (_req: Request, res: Response) => {
       siteUrls: config.siteUrls,
     });
 
-    app.post('/api/kb/drive-sync', async (req: Request, res: Response) => {
-      try {
-        const user = await authenticateRequest(req.headers.authorization);
-        if (config.requireAuth && !isAdmin(user)) {
-          return res.status(403).json({ ok: false, error: 'Admin access required' });
-        }
-        if (!config.googleDriveFolderId || !config.googleServiceAccountJson) {
-          return res.status(503).json({ ok: false, error: 'Google Drive sync is not configured' });
-        }
-
-        const store = await vectorStorePromise;
-        const { ingestGoogleDriveFolder } = await import('./lib/ingest.js');
-        const result = await ingestGoogleDriveFolder(store, {
-          folderId: config.googleDriveFolderId,
-          serviceAccountJson: config.googleServiceAccountJson,
-        });
-        return res.json({ ok: true, result });
-      } catch (error) {
-        return sendError(res, error, 'Unknown Google Drive sync error');
-      }
-    });
-
     res.json({ ok: true, result });
   } catch (error) {
     return sendError(res, error, 'Unknown ingestion error');
+  }
+});
+
+app.post('/api/kb/drive-sync', async (req: Request, res: Response) => {
+  try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (config.requireAuth && !isAdmin(user)) {
+      return res.status(403).json({ ok: false, error: 'Admin access required' });
+    }
+    if (!config.googleDriveFolderId || !config.googleServiceAccountJson) {
+      return res.status(503).json({ ok: false, error: 'Google Drive sync is not configured' });
+    }
+
+    const store = await vectorStorePromise;
+    const { ingestGoogleDriveFolder } = await import('./lib/ingest.js');
+    const result = await ingestGoogleDriveFolder(store, {
+      folderId: config.googleDriveFolderId,
+      serviceAccountJson: config.googleServiceAccountJson,
+    });
+    return res.json({ ok: true, result });
+  } catch (error) {
+    return sendError(res, error, 'Unknown Google Drive sync error');
   }
 });
 

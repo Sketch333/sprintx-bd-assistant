@@ -175,7 +175,7 @@ export function App() {
     setError('');
     try {
       const response = await syncKnowledgeBase(session.access_token);
-      setSyncMessage(`Ingestion complete: ${JSON.stringify(response.result)}`);
+      setSyncMessage(`Google Drive sync complete: ${JSON.stringify(response.result)}`);
     } catch (syncError) {
       setError(syncError instanceof Error ? syncError.message : 'Knowledge-base sync failed.');
     } finally {
