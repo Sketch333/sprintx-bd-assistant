@@ -241,7 +241,7 @@ export function App() {
     setError('');
     try {
       const response = await crawlWebsites(session.access_token);
-      setSyncMessage(`Website crawl complete: ${JSON.stringify(response.result.sites)}`);
+      setSyncMessage(`Website crawl complete: ${JSON.stringify(response.result)}`);
     } catch (syncError) {
       setError(syncError instanceof Error ? syncError.message : 'Website crawl failed.');
     } finally {

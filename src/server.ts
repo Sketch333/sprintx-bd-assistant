@@ -176,6 +176,22 @@ app.post('/api/kb/drive-sync', async (req: Request, res: Response) => {
   }
 });
 
+app.post('/api/kb/site-sync', async (req: Request, res: Response) => {
+  try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (config.requireAuth && !isAdmin(user)) {
+      return res.status(403).json({ ok: false, error: 'Admin access required' });
+    }
+
+    const store = await vectorStorePromise;
+    const { crawlSiteUrls } = await import('./lib/ingest.js');
+    const result = await crawlSiteUrls(config.siteUrls, store);
+    return res.json({ ok: true, result });
+  } catch (error) {
+    return sendError(res, error, 'Unknown website crawl error');
+  }
+});
+
 app.post('/api/kb/search', async (req: Request, res: Response) => {
   try {
     const parse = searchSchema.safeParse(req.body);

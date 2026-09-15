@@ -14,6 +14,7 @@ test('admin endpoints reject unauthenticated requests', async () => {
       '/api/users',
       '/api/kb/ingest',
       '/api/kb/drive-sync',
+      '/api/kb/site-sync',
     ];
 
     for (const endpoint of endpoints) {

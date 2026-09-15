@@ -74,8 +74,8 @@ export function syncGoogleDrive(accessToken: string): Promise<{ ok: true; result
   return postJson('/api/kb/drive-sync', {}, accessToken);
 }
 
-export function crawlWebsites(accessToken: string): Promise<{ ok: true; result: { drive: unknown; sites: unknown } }> {
-  return postJson('/api/kb/ingest', {}, accessToken);
+export function crawlWebsites(accessToken: string): Promise<{ ok: true; result: { crawled: number; chunks: number; sources: number } }> {
+  return postJson('/api/kb/site-sync', {}, accessToken);
 }
 
 export function setGeminiKey(accessToken: string, apiKey: string): Promise<{ ok: true; geminiKeyConfigured: true }> {

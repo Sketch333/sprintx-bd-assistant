@@ -27,6 +27,7 @@ This project initializes the SprintX BD Assistant Milestone 1 foundation: a loca
 - `GET /health`
 - `POST /api/kb/ingest` (admin-only configured local/website ingestion)
 - `POST /api/kb/drive-sync` (admin-only Google Drive sync)
+- `POST /api/kb/site-sync` (admin-only configured website crawl)
 - `POST /api/kb/search`
 - `POST /api/ask`
 - `POST /api/draft`
