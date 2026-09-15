@@ -386,7 +386,7 @@ function buildSourceRecord(filePath: string, content: string): SourceRecord {
   const status = filePath.toLowerCase().includes('archive') ? 'archived' : 'active';
 
   return {
-    id: `source-${randomUUID()}`,
+    id: createLocalSourceId(filePath),
     sourceType,
     sourceTitle: fileName,
     sourcePath: filePath,
@@ -397,6 +397,11 @@ function buildSourceRecord(filePath: string, content: string): SourceRecord {
       contentLength: content.length,
     },
   };
+}
+
+export function createLocalSourceId(filePath: string): string {
+  const normalizedPath = path.normalize(path.resolve(filePath)).toLowerCase();
+  return `source-${createHash('sha256').update(normalizedPath).digest('hex').slice(0, 24)}`;
 }
 
 export function createSiteSourceId(url: string): string {

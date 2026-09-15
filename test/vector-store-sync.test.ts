@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { MemoryVectorStore } from '../src/lib/vector-store';
-import { createSiteSourceId } from '../src/lib/ingest';
+import { createLocalSourceId, createSiteSourceId } from '../src/lib/ingest';
+
+test('local source IDs are stable for the same file path', () => {
+  assert.equal(createLocalSourceId('./data/drive/Docs/brief.md'), createLocalSourceId('data/drive/Docs/brief.md'));
+  assert.notEqual(createLocalSourceId('data/drive/Docs/brief.md'), createLocalSourceId('data/drive/Docs/other.md'));
+});
 
 test('website source IDs are stable for the same URL', () => {
   assert.equal(createSiteSourceId('https://sprintx.net/'), createSiteSourceId('https://sprintx.net/'));
