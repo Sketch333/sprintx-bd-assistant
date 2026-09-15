@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { ApiError, askAssistant, crawlWebsites, createConversation, createUser, draftMessage, getProfile, listConversations, listUsers, removeGeminiKey, setGeminiKey, syncGoogleDrive } from './api';
+import { ApiError, askAssistant, crawlWebsites, createConversation, createUser, draftMessage, getConversationMessages, getProfile, listConversations, listUsers, removeGeminiKey, setGeminiKey, syncGoogleDrive } from './api';
 import { signInWithGoogle, supabase } from './supabase';
-import type { AskResponse, DraftInput, DraftResponse, ProvisionedUser } from './types';
+import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftResponse, ProvisionedUser } from './types';
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -25,6 +25,9 @@ export function App() {
   const [authenticating, setAuthenticating] = useState(false);
   const [conversationId, setConversationId] = useState<string>();
   const [conversationTitle, setConversationTitle] = useState('New conversation');
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [geminiKey, setGeminiKeyValue] = useState('');
   const [keyConfigured, setKeyConfigured] = useState(false);
@@ -62,10 +65,12 @@ export function App() {
     listConversations(session.access_token)
       .then(async ({ conversations }) => {
         if (!active) return;
+        setConversations(conversations);
         const latest = conversations[0] ?? (await createConversation(session.access_token, 'SprintX workspace')).conversation;
         if (active) {
           setConversationId(latest.id);
           setConversationTitle(latest.title);
+          if (!conversations.length) setConversations([latest]);
         }
       })
       .catch((conversationError) => {
@@ -75,6 +80,52 @@ export function App() {
       active = false;
     };
   }, [session?.access_token]);
+
+  async function handleNewConversation() {
+    if (!session?.access_token) return;
+    setHistoryBusy(true);
+    setError('');
+    try {
+      const created = await createConversation(session.access_token, 'New conversation');
+      setConversationId(created.conversation.id);
+      setConversationTitle(created.conversation.title);
+      setConversations((current) => [created.conversation, ...current]);
+      setResult(null);
+      setDraftResult(null);
+      setHistoryOpen(false);
+    } catch (conversationError) {
+      setError(conversationError instanceof Error ? conversationError.message : 'Could not create a conversation.');
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+
+  async function handleSelectConversation(conversation: Conversation) {
+    if (!session?.access_token) return;
+    setHistoryBusy(true);
+    setError('');
+    try {
+      const { messages } = await getConversationMessages(session.access_token, conversation.id);
+      setConversationId(conversation.id);
+      setConversationTitle(conversation.title);
+      const lastAssistant = [...messages].reverse().find((message: ConversationMessage) => message.role === 'assistant');
+      setResult(lastAssistant ? {
+        ok: true,
+        question: [...messages].reverse().find((message) => message.role === 'user')?.content ?? '',
+        answer: lastAssistant.content,
+        sources: lastAssistant.citations,
+        usedGemini: true,
+        userId: null,
+        conversationId: conversation.id,
+      } : null);
+      setDraftResult(null);
+      setHistoryOpen(false);
+    } catch (conversationError) {
+      setError(conversationError instanceof Error ? conversationError.message : 'Could not load conversation history.');
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!session?.access_token) return;
@@ -299,7 +350,20 @@ export function App() {
             <button className={mode === 'ask' ? 'tab active' : 'tab'} onClick={() => setMode('ask')} type="button">Ask</button>
             <button className={mode === 'draft' ? 'tab active' : 'tab'} onClick={() => setMode('draft')} type="button">Draft</button>
           </div>
-          <p className="conversation-label">Conversation: {conversationTitle}</p>
+          <div className="conversation-bar">
+            <button className="text-button" type="button" onClick={() => setHistoryOpen(!historyOpen)} aria-expanded={historyOpen}>
+              Conversation: {conversationTitle}
+            </button>
+            <button className="text-button" type="button" onClick={handleNewConversation} disabled={historyBusy}>New</button>
+          </div>
+          {historyOpen && <section className="card history-card">
+            <div className="answer-heading"><h2>Conversation history</h2><button className="text-button" type="button" onClick={() => setHistoryOpen(false)}>Close</button></div>
+            {conversations.length === 0 ? <p className="empty-state">No saved conversations yet.</p> : <div className="conversation-list">
+              {conversations.map((conversation) => <button className={conversation.id === conversationId ? 'conversation-item active' : 'conversation-item'} type="button" key={conversation.id} onClick={() => handleSelectConversation(conversation)} disabled={historyBusy}>
+                <strong>{conversation.title}</strong><small>{new Date(conversation.updatedAt).toLocaleString()}</small>
+              </button>)}
+            </div>}
+          </section>}
           <section className="intro">
             <p>{mode === 'ask' ? 'Ask about SprintX services, positioning, case studies, or outreach strategy.' : 'Create a grounded outreach message using SprintX knowledge.'}</p>
           </section>

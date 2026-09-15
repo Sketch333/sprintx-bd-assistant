@@ -76,6 +76,6 @@ Admins also have an Admin view for provisioning users and independently syncing 
 
 ## Notes
 
-The deployed backend now supports authenticated Ask, Draft, persistent conversation workflows, and admin controls in the extension.
+The deployed backend now supports authenticated Ask, Draft, persistent conversation workflows, conversation switching in the extension, and admin controls.
 
 To enable Google Drive sync, share the source folder with the service-account email and configure `GOOGLE_DRIVE_FOLDER_ID` plus `GOOGLE_SERVICE_ACCOUNT_JSON` in Vercel. The JSON value must contain the service account's `client_email` and `private_key`; keep it server-side and never add it to the extension.
