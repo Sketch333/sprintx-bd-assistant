@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { config } from './config';
 import { authenticateRequest, AuthenticationError, isAdmin } from './lib/auth';
 import { answerQuestion } from './lib/ask-service';
+import { createDraft } from './lib/draft-service';
 import { createUser, getUserApiKey, getUserById, listUsers, removeUserApiKey, setUserApiKey } from './lib/user-store';
 import { createVectorStore } from './lib/vector-store';
 
@@ -45,6 +46,15 @@ const askSchema = z.object({
   question: z.string().min(1),
   limit: z.number().int().min(1).max(10).optional(),
   userId: z.string().optional(),
+});
+
+const draftSchema = z.object({
+  type: z.enum(['cold-email', 'follow-up', 'linkedin', 'proposal']),
+  audience: z.string().min(1).max(500),
+  objective: z.string().min(1).max(500),
+  tone: z.enum(['professional', 'friendly', 'persuasive', 'concise']).default('professional'),
+  length: z.enum(['short', 'medium', 'long']).default('medium'),
+  context: z.string().max(2000).optional(),
 });
 
 const createUserSchema = z.object({
@@ -206,6 +216,29 @@ app.post('/api/ask', async (req: Request, res: Response) => {
     return res.json({ ok: true, question, answer: answer.answer, sources: answer.sources, usedGemini: answer.usedGemini, userId: userId ?? null });
   } catch (error) {
     return sendError(res, error, 'Unknown ask error');
+  }
+});
+
+app.post('/api/draft', async (req: Request, res: Response) => {
+  try {
+    const parse = draftSchema.safeParse(req.body);
+    if (!parse.success) {
+      return res.status(400).json({ ok: false, error: parse.error.issues });
+    }
+
+    const authenticatedUser = await authenticateRequest(req.headers.authorization);
+    if (config.requireAuth && !authenticatedUser) {
+      return res.status(403).json({ ok: false, error: 'Draft requests require an authenticated user' });
+    }
+
+    const store = await vectorStorePromise;
+    const results = await store.search(`${parse.data.audience} ${parse.data.objective} ${parse.data.context ?? ''}`, 5);
+    const apiKey = authenticatedUser ? await getUserApiKey(authenticatedUser.id) : undefined;
+    const result = await createDraft(parse.data, results, apiKey);
+
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    return sendError(res, error, 'Unknown draft error');
   }
 });
 

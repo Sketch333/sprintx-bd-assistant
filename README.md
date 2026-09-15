@@ -28,6 +28,7 @@ This project initializes the SprintX BD Assistant Milestone 1 foundation: a loca
 - `POST /api/kb/ingest`
 - `POST /api/kb/search`
 - `POST /api/ask`
+- `POST /api/draft`
 - `GET/POST /api/users` (admin-provisioned when hosted auth is enabled)
 - `POST/DELETE /api/users/:id/api-key`
 
@@ -62,4 +63,4 @@ The Vercel project must allow the extension origin for CORS. The current backend
 
 ## Notes
 
-This is intentionally scoped to the Milestone 1 ingestion foundation. Ask mode, Draft mode, auth, and extension UI are planned for later milestones.
+The deployed backend now supports authenticated Ask and Draft workflows. Production Google Drive synchronization, conversation history, and an admin dashboard remain future milestones.
