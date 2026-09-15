@@ -6,3 +6,4 @@ dist/
 data/users.json
 *.log
 *.tsbuildinfo
+.vercel
