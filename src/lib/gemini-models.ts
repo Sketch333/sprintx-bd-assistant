@@ -21,6 +21,8 @@ export const LIVE_MODELS = [
   'gemini-2.5-flash-live',
 ];
 
+export const EMBEDDING_DIMENSIONS = 1536;
+
 export async function generateGeminiText(prompt: string, systemPrompt?: string, apiKey?: string): Promise<string> {
   const key = apiKey ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '';
   if (!key) {
@@ -64,10 +66,13 @@ export async function generateGeminiEmbedding(text: string, apiKey?: string): Pr
   for (const modelName of EMBEDDING_MODELS) {
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await model.embedContent(text);
+      const result = await model.embedContent({
+        content: { role: 'user', parts: [{ text }] },
+        outputDimensionality: EMBEDDING_DIMENSIONS,
+      } as any);
       const values = result.embedding?.values ?? result.embeddings?.[0]?.values ?? [];
       if (Array.isArray(values) && values.length > 0) {
-        return values;
+        return coerceEmbeddingDimensions(values, EMBEDDING_DIMENSIONS);
       }
     } catch (error) {
       errors.push(error);
@@ -77,4 +82,14 @@ export async function generateGeminiEmbedding(text: string, apiKey?: string): Pr
 
   const lastError = errors[errors.length - 1];
   throw lastError instanceof Error ? lastError : new Error('Gemini embedding failed for all configured models.');
+}
+
+export function coerceEmbeddingDimensions(values: number[], dimensions: number): number[] {
+  const resized = values.slice(0, dimensions);
+  while (resized.length < dimensions) {
+    resized.push(0);
+  }
+
+  const magnitude = Math.sqrt(resized.reduce((sum, value) => sum + value * value, 0));
+  return magnitude === 0 ? resized : resized.map((value) => value / magnitude);
 }
