@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { config } from './config';
 import { authenticateRequest, isAdmin } from './lib/auth';
 import { answerQuestion } from './lib/ask-service';
-import { runFullIngest } from './lib/ingest';
 import { createUser, getUserApiKey, getUserById, listUsers, removeUserApiKey, setUserApiKey } from './lib/user-store';
 import { createVectorStore } from './lib/vector-store';
 
@@ -40,6 +39,10 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({ ok: true, status: 'healthy' });
 });
 
+app.get('/', (_req: Request, res: Response) => {
+  res.json({ ok: true, service: 'sprintx-bd-assistant', health: '/health' });
+});
+
 app.post('/api/kb/ingest', async (_req: Request, res: Response) => {
   try {
     const user = await authenticateRequest(_req.headers.authorization);
@@ -48,6 +51,7 @@ app.post('/api/kb/ingest', async (_req: Request, res: Response) => {
     }
 
     const store = await vectorStorePromise;
+    const { runFullIngest } = await import('./lib/ingest.js');
     const result = await runFullIngest(store, {
       driveRoot: config.driveRoot,
       siteUrls: config.siteUrls,

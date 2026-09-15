@@ -24,11 +24,18 @@ const supabase = config.supabaseUrl && config.supabaseServiceRoleKey
   ? createClient(config.supabaseUrl, config.supabaseServiceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } })
   : undefined;
 
+function assertWritableLocalStore(): void {
+  if (process.env.VERCEL === '1') {
+    throw new Error('Supabase user storage is required on Vercel; configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY');
+  }
+}
+
 export function isHostedUserStoreEnabled(): boolean {
   return Boolean(supabase);
 }
 
 export async function ensureUserStore(): Promise<void> {
+  assertWritableLocalStore();
   const directory = path.dirname(storePath);
   if (!fs.existsSync(directory)) {
     fs.mkdirSync(directory, { recursive: true });
