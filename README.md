@@ -64,7 +64,7 @@ The first user-facing Ask workflow is in `extension/`. It uses the public Vercel
 4. Copy the generated extension ID. Supabase Auth must allow the redirect URL `https://<extension-id>.chromiumapp.org/supabase-auth` under Authentication → URL Configuration.
 5. Click the extension toolbar icon, sign in with Google, and ask a question.
 
-The Vercel project must allow the extension origin for CORS. The current backend accepts `chrome-extension://` origins; set `ALLOWED_EXTENSION_ORIGINS` to the exact extension origin in Vercel when you want to narrow this further.
+The Vercel project must allow the extension origin for CORS. Set `ALLOWED_EXTENSION_ORIGINS` to the exact `chrome-extension://<extension-id>` origin in Vercel. Production rejects unconfigured extension origins; local development allows Chrome extension origins so a newly loaded unpacked extension can be tested before its ID is known.
 
 The extension Settings view can save, replace, or remove a user's Gemini key. The raw key is sent over HTTPS to the backend, encrypted there, and never returned or stored in the extension.
 

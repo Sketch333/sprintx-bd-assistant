@@ -18,9 +18,13 @@ app.use((req, res, next) => {
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
-  const isChromeExtensionOrigin = typeof origin === 'string' && origin.startsWith('chrome-extension://');
+  const isLocalChromeExtensionOrigin =
+    process.env.NODE_ENV !== 'production' &&
+    process.env.VERCEL !== '1' &&
+    typeof origin === 'string' &&
+    origin.startsWith('chrome-extension://');
 
-  if (origin && (configuredOrigins.includes(origin) || isChromeExtensionOrigin)) {
+  if (origin && (configuredOrigins.includes(origin) || isLocalChromeExtensionOrigin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
