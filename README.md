@@ -66,6 +66,8 @@ The first user-facing Ask workflow is in `extension/`. It uses the public Vercel
 
 The Vercel project must allow the extension origin for CORS. Set `ALLOWED_EXTENSION_ORIGINS` to the exact `chrome-extension://<extension-id>` origin in Vercel. Production rejects unconfigured extension origins; local development allows Chrome extension origins so a newly loaded unpacked extension can be tested before its ID is known.
 
+The API includes a per-instance IP rate limit for `/api/*` routes. Configure `RATE_LIMIT_WINDOW_MS` and `RATE_LIMIT_MAX_REQUESTS` in Vercel if needed. Responses include `X-Request-Id`, rate-limit headers, and `Retry-After` when the limit is exceeded. Because Vercel functions are horizontally scaled, this is a protective per-instance limit rather than a shared global quota.
+
 The extension Settings view can save, replace, or remove a user's Gemini key. The raw key is sent over HTTPS to the backend, encrypted there, and never returned or stored in the extension.
 
 Admins also have an Admin view for provisioning users and starting the existing authenticated knowledge-base ingestion. The backend remains the source of truth for authorization.

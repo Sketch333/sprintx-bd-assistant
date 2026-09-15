@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 import { config } from './config';
@@ -11,8 +12,23 @@ import { appendConversationMessages, createConversation, getConversationMessages
 
 const app = express();
 const vectorStorePromise = createVectorStore();
+const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
 
 app.use((req, res, next) => {
+  const requestId = randomUUID();
+  const startedAt = Date.now();
+  res.setHeader('X-Request-Id', requestId);
+  res.on('finish', () => {
+    console.log(JSON.stringify({
+      event: 'http_request',
+      requestId,
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      durationMs: Date.now() - startedAt,
+    }));
+  });
+
   const origin = req.headers.origin;
   const configuredOrigins = (process.env.ALLOWED_EXTENSION_ORIGINS ?? '')
     .split(',')
@@ -33,6 +49,37 @@ app.use((req, res, next) => {
 
   if (req.method === 'OPTIONS') {
     return res.sendStatus(204);
+  }
+
+  return next();
+});
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+
+  const now = Date.now();
+  const key = req.ip ?? 'unknown';
+  const current = rateLimitBuckets.get(key);
+  const bucket = !current || current.resetAt <= now
+    ? { count: 0, resetAt: now + config.rateLimitWindowMs }
+    : current;
+
+  bucket.count += 1;
+  rateLimitBuckets.set(key, bucket);
+
+  if (rateLimitBuckets.size > 10_000) {
+    for (const [bucketKey, value] of rateLimitBuckets) {
+      if (value.resetAt <= now) rateLimitBuckets.delete(bucketKey);
+    }
+  }
+
+  res.setHeader('X-RateLimit-Limit', config.rateLimitMaxRequests);
+  res.setHeader('X-RateLimit-Remaining', Math.max(0, config.rateLimitMaxRequests - bucket.count));
+  res.setHeader('X-RateLimit-Reset', Math.ceil(bucket.resetAt / 1000));
+
+  if (bucket.count > config.rateLimitMaxRequests) {
+    res.setHeader('Retry-After', Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)));
+    return res.status(429).json({ ok: false, error: 'Too many requests' });
   }
 
   return next();

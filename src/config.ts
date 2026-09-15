@@ -22,4 +22,6 @@ export const config = {
   siteUrls: (process.env.SITE_URLS ?? defaultSiteUrls.join(',')).split(',').map((value) => value.trim()).filter(Boolean),
   googleDriveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID ?? '',
   googleServiceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? '',
+  rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000),
+  rateLimitMaxRequests: Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 120),
 };
