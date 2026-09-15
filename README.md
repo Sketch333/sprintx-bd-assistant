@@ -69,6 +69,8 @@ The Vercel project must allow the extension origin for CORS. Set `ALLOWED_EXTENS
 
 The API includes a per-instance IP rate limit for `/api/*` routes. Configure `RATE_LIMIT_WINDOW_MS` and `RATE_LIMIT_MAX_REQUESTS` in Vercel if needed. Responses include `X-Request-Id`, rate-limit headers, and `Retry-After` when the limit is exceeded. Because Vercel functions are horizontally scaled, this is a protective per-instance limit rather than a shared global quota.
 
+JSON request bodies are limited to `100kb` by default to prevent accidental or abusive oversized payloads. Override `JSON_BODY_LIMIT` only when a legitimate integration requires a larger request.
+
 Google Drive sync recursively scans the configured folder and its subfolders. Each Drive file uses a stable `gdrive-<file-id>` source ID; a successful sync removes previously indexed Drive sources that are no longer present or readable in the configured folder, while leaving website and local sources untouched.
 
 The extension Settings view can save, replace, or remove a user's Gemini key. The raw key is sent over HTTPS to the backend, encrypted there, and never returned or stored in the extension.

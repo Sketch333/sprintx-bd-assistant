@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
@@ -85,7 +85,7 @@ app.use((req, res, next) => {
   return next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: config.jsonBodyLimit }));
 
 export default app;
 
@@ -414,6 +414,22 @@ app.get('/api/conversations/:id/messages', async (req: Request, res: Response) =
   } catch (error) {
     return sendError(res, error, 'Unknown conversation message error');
   }
+});
+
+app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
+  if (res.headersSent) {
+    return next(error);
+  }
+
+  if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.too.large') {
+    return res.status(413).json({ ok: false, error: 'Request entity too large' });
+  }
+
+  if (error instanceof SyntaxError) {
+    return res.status(400).json({ ok: false, error: 'Invalid JSON body' });
+  }
+
+  return next(error);
 });
 
 if (require.main === module) {

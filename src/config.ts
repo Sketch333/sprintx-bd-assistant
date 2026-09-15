@@ -24,4 +24,5 @@ export const config = {
   googleServiceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? '',
   rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000),
   rateLimitMaxRequests: Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 120),
+  jsonBodyLimit: process.env.JSON_BODY_LIMIT ?? '100kb',
 };
