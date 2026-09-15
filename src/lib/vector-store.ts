@@ -1,5 +1,5 @@
 const { Pool } = require('pg');
-const { v4: uuidv4 } = require('uuid');
+import { randomUUID } from 'crypto';
 
 import { config } from '../config';
 import { KnowledgeChunk, SearchResult, SourceRecord } from '../types';
@@ -263,5 +263,5 @@ function normalizeTerms(value: string): string[] {
 }
 
 export function makeSourceId(kind: 'document' | 'site' | 'sheet', name: string): string {
-  return `${kind}-${uuidv4()}-${name.replace(/[^a-zA-Z0-9-_]+/g, '-').slice(0, 48)}`;
+  return `${kind}-${randomUUID()}-${name.replace(/[^a-zA-Z0-9-_]+/g, '-').slice(0, 48)}`;
 }

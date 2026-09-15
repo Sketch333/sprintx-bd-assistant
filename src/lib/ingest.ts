@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 
-const { v4: uuidv4 } = require('uuid');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const mammoth = require('mammoth');
@@ -72,7 +72,7 @@ export async function crawlSiteUrls(urls: string[], vectorStore: VectorStore): P
 
       const hostname = new URL(url).hostname;
       const source: SourceRecord = {
-        id: `site-${uuidv4()}`,
+        id: `site-${randomUUID()}`,
         sourceType: 'site',
         sourceTitle: hostname,
         sourcePath: url,
@@ -205,7 +205,7 @@ function buildSourceRecord(filePath: string, content: string): SourceRecord {
   const status = filePath.toLowerCase().includes('archive') ? 'archived' : 'active';
 
   return {
-    id: `source-${uuidv4()}`,
+    id: `source-${randomUUID()}`,
     sourceType,
     sourceTitle: fileName,
     sourcePath: filePath,
