@@ -25,6 +25,7 @@ export function App() {
   const [authenticating, setAuthenticating] = useState(false);
   const [conversationId, setConversationId] = useState<string>();
   const [conversationTitle, setConversationTitle] = useState('New conversation');
+  const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyBusy, setHistoryBusy] = useState(false);
@@ -90,6 +91,7 @@ export function App() {
       setConversationId(created.conversation.id);
       setConversationTitle(created.conversation.title);
       setConversations((current) => [created.conversation, ...current]);
+      setConversationMessages([]);
       setResult(null);
       setDraftResult(null);
       setHistoryOpen(false);
@@ -108,6 +110,7 @@ export function App() {
       const { messages } = await getConversationMessages(session.access_token, conversation.id);
       setConversationId(conversation.id);
       setConversationTitle(conversation.title);
+      setConversationMessages(messages);
       const lastAssistant = [...messages].reverse().find((message: ConversationMessage) => message.role === 'assistant');
       setResult(lastAssistant ? {
         ok: true,
@@ -256,7 +259,12 @@ export function App() {
     setError('');
     setAsking(true);
     try {
-      setResult(await askAssistant(trimmedQuestion, session.access_token, conversationId));
+      const response = await askAssistant(trimmedQuestion, session.access_token, conversationId);
+      setResult(response);
+      setConversationMessages((current) => [...current,
+        { id: `local-user-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'user', content: trimmedQuestion, citations: [], createdAt: new Date().toISOString() },
+        { id: `local-assistant-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'assistant', content: response.answer, citations: response.sources, createdAt: new Date().toISOString() },
+      ]);
     } catch (askError) {
       if (askError instanceof ApiError && askError.status === 401) {
         await supabase.auth.signOut();
@@ -275,12 +283,16 @@ export function App() {
     setError('');
     setDrafting(true);
     try {
-      setDraftResult(await draftMessage({
+      const response = await draftMessage({
         ...draft,
         audience: draft.audience.trim(),
         objective: draft.objective.trim(),
         context: draft.context?.trim() || undefined,
-      }, session.access_token, conversationId));
+      }, session.access_token, conversationId);
+      setDraftResult(response);
+      setConversationMessages((current) => [...current,
+        { id: `local-draft-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'assistant', content: response.draft, citations: response.sources, createdAt: new Date().toISOString() },
+      ]);
     } catch (draftError) {
       if (draftError instanceof ApiError && draftError.status === 401) await supabase.auth.signOut();
       setError(draftError instanceof Error ? draftError.message : 'The draft request failed.');
@@ -363,6 +375,15 @@ export function App() {
                 <strong>{conversation.title}</strong><small>{new Date(conversation.updatedAt).toLocaleString()}</small>
               </button>)}
             </div>}
+          </section>}
+          {conversationMessages.length > 0 && <section className="card transcript-card">
+            <div className="answer-heading"><h2>Transcript</h2><span className="muted">{conversationMessages.length} messages</span></div>
+            <div className="transcript">
+              {conversationMessages.map((message) => <article className={message.role === 'user' ? 'transcript-message user-message' : 'transcript-message'} key={message.id}>
+                <strong>{message.role === 'user' ? 'You' : 'Assistant'}</strong>
+                <p>{message.content}</p>
+              </article>)}
+            </div>
           </section>}
           <section className="intro">
             <p>{mode === 'ask' ? 'Ask about SprintX services, positioning, case studies, or outreach strategy.' : 'Create a grounded outreach message using SprintX knowledge.'}</p>
