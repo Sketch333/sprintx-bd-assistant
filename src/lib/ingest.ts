@@ -50,6 +50,7 @@ export async function ingestDriveFolder(rootDirectory: string, vectorStore: Vect
     await vectorStore.removeChunksExcept(source.id, activeChunkIds);
   }
 
+  await vectorStore.removeSourcesExcept('source-', new Set(sources.keys()));
   const stats = await vectorStore.getStats();
 
   return {

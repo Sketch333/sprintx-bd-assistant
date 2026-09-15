@@ -24,7 +24,12 @@ export class MemoryVectorStore implements VectorStore {
   }
 
   async addChunk(chunk: KnowledgeChunk): Promise<void> {
-    this.chunks.push(chunk);
+    const existingIndex = this.chunks.findIndex((existing) => existing.id === chunk.id);
+    if (existingIndex >= 0) {
+      this.chunks[existingIndex] = chunk;
+    } else {
+      this.chunks.push(chunk);
+    }
     this.embeddings.set(chunk.id, await generateEmbedding(chunk.content));
   }
 
