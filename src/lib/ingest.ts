@@ -19,7 +19,6 @@ export async function ingestDriveFolder(rootDirectory: string, vectorStore: Vect
   const files = await discoverDriveFiles(rootDirectory);
   const sources = new Map<string, SourceRecord>();
   let chunkCount = 0;
-
   for (const file of files) {
     const text = await extractTextFromFile(file);
     const source = buildSourceRecord(file, text);
@@ -216,21 +215,23 @@ const googleExportMimeTypes: Record<string, { mimeType: string; sourceType: Sour
   'application/vnd.google-apps.spreadsheet': { mimeType: 'text/csv', sourceType: 'sheet' },
 };
 
-export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options: GoogleDriveSyncOptions): Promise<{ discovered: number; chunks: number; sources: number }> {
+export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options: GoogleDriveSyncOptions): Promise<{ discovered: number; chunks: number; sources: number; removed: number }> {
   const credentials = JSON.parse(options.serviceAccountJson) as { client_email?: string; private_key?: string };
   if (!credentials.client_email || !credentials.private_key) {
     throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON must contain client_email and private_key');
   }
 
   const accessToken = await createGoogleAccessToken(credentials.client_email, credentials.private_key);
-  const files = await listGoogleDriveFiles(options.folderId, accessToken);
+  const files = await listGoogleDriveFilesRecursively(options.folderId, accessToken);
   let chunkCount = 0;
+  const activeSourceIds = new Set<string>();
 
   for (const file of files) {
     const text = await downloadGoogleDriveText(file, accessToken);
     if (!text.trim()) continue;
 
     const sourceId = `gdrive-${file.id}`;
+    activeSourceIds.add(sourceId);
     const source: SourceRecord = {
       id: sourceId,
       sourceType: googleExportMimeTypes[file.mimeType]?.sourceType ?? 'document',
@@ -259,8 +260,9 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
     }
   }
 
+  const removed = await vectorStore.removeSourcesExcept('gdrive-', activeSourceIds);
   const stats = await vectorStore.getStats();
-  return { discovered: files.length, chunks: chunkCount, sources: stats.sourceCount };
+  return { discovered: files.length, chunks: chunkCount, sources: stats.sourceCount, removed };
 }
 
 async function createGoogleAccessToken(clientEmail: string, privateKey: string): Promise<string> {
@@ -297,6 +299,43 @@ async function listGoogleDriveFiles(folderId: string, accessToken: string): Prom
     files.push(...(response.data.files ?? []));
     pageToken = response.data.nextPageToken;
   } while (pageToken);
+  return files;
+}
+
+async function listGoogleDriveFilesRecursively(folderId: string, accessToken: string): Promise<GoogleDriveFile[]> {
+  const files: GoogleDriveFile[] = [];
+  const folders = [folderId];
+  const visitedFolders = new Set<string>();
+
+  while (folders.length) {
+    const currentFolderId = folders.shift() as string;
+    if (visitedFolders.has(currentFolderId)) continue;
+    visitedFolders.add(currentFolderId);
+
+    let pageToken: string | undefined;
+    do {
+      const response = await axios.get('https://www.googleapis.com/drive/v3/files', {
+        headers: { Authorization: ['Bearer', accessToken].join(' ') },
+        params: {
+          q: `'${currentFolderId}' in parents and trashed = false`,
+          pageSize: 1000,
+          pageToken,
+          fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink)',
+        },
+        timeout: 20000,
+      });
+
+      for (const file of response.data.files ?? []) {
+        if (file.mimeType === 'application/vnd.google-apps.folder') {
+          folders.push(file.id);
+        } else {
+          files.push(file);
+        }
+      }
+      pageToken = response.data.nextPageToken;
+    } while (pageToken);
+  }
+
   return files;
 }
 
