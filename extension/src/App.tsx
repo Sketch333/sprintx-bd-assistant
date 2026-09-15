@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { ApiError, askAssistant, crawlWebsites, createConversation, createUser, draftMessage, getConversationMessages, getProfile, listConversations, listUsers, removeGeminiKey, setGeminiKey, syncGoogleDrive } from './api';
+import { ApiError, askAssistant, crawlWebsites, createConversation, createUser, deleteConversation, draftMessage, getConversationMessages, getProfile, listConversations, listUsers, removeGeminiKey, renameConversation, setGeminiKey, syncGoogleDrive } from './api';
 import { signInWithGoogle, supabase } from './supabase';
 import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftResponse, ProvisionedUser } from './types';
 
@@ -125,6 +125,44 @@ export function App() {
       setHistoryOpen(false);
     } catch (conversationError) {
       setError(conversationError instanceof Error ? conversationError.message : 'Could not load conversation history.');
+    } finally {
+      setHistoryBusy(false);
+    }
+
+  }
+
+  async function handleRenameConversation(conversation: Conversation) {
+    if (!session?.access_token) return;
+    const title = window.prompt('Conversation name', conversation.title)?.trim();
+    if (!title || title === conversation.title) return;
+    setHistoryBusy(true);
+    setError('');
+    try {
+      const updated = (await renameConversation(session.access_token, conversation.id, title)).conversation;
+      setConversations((current) => current.map((item) => item.id === updated.id ? updated : item));
+      if (conversation.id === conversationId) setConversationTitle(updated.title);
+    } catch (conversationError) {
+      setError(conversationError instanceof Error ? conversationError.message : 'Could not rename conversation.');
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+
+  async function handleDeleteConversation(conversation: Conversation) {
+    if (!session?.access_token || !window.confirm(`Delete "${conversation.title}"?`)) return;
+    setHistoryBusy(true);
+    setError('');
+    try {
+      await deleteConversation(session.access_token, conversation.id);
+      const remaining = conversations.filter((item) => item.id !== conversation.id);
+      setConversations(remaining);
+      if (conversation.id === conversationId) {
+        const replacement = remaining[0];
+        if (replacement) await handleSelectConversation(replacement);
+        else await handleNewConversation();
+      }
+    } catch (conversationError) {
+      setError(conversationError instanceof Error ? conversationError.message : 'Could not delete conversation.');
     } finally {
       setHistoryBusy(false);
     }
@@ -371,9 +409,12 @@ export function App() {
           {historyOpen && <section className="card history-card">
             <div className="answer-heading"><h2>Conversation history</h2><button className="text-button" type="button" onClick={() => setHistoryOpen(false)}>Close</button></div>
             {conversations.length === 0 ? <p className="empty-state">No saved conversations yet.</p> : <div className="conversation-list">
-              {conversations.map((conversation) => <button className={conversation.id === conversationId ? 'conversation-item active' : 'conversation-item'} type="button" key={conversation.id} onClick={() => handleSelectConversation(conversation)} disabled={historyBusy}>
-                <strong>{conversation.title}</strong><small>{new Date(conversation.updatedAt).toLocaleString()}</small>
-              </button>)}
+              {conversations.map((conversation) => <div className={conversation.id === conversationId ? 'conversation-item active' : 'conversation-item'} key={conversation.id}>
+                <button className="conversation-select" type="button" onClick={() => handleSelectConversation(conversation)} disabled={historyBusy}>
+                  <strong>{conversation.title}</strong><small>{new Date(conversation.updatedAt).toLocaleString()}</small>
+                </button>
+                <span className="conversation-actions"><button className="text-button" type="button" onClick={() => handleRenameConversation(conversation)} disabled={historyBusy}>Rename</button><button className="text-button danger-text" type="button" onClick={() => handleDeleteConversation(conversation)} disabled={historyBusy}>Delete</button></span>
+              </div>)}
             </div>}
           </section>}
           {conversationMessages.length > 0 && <section className="card transcript-card">

@@ -18,24 +18,14 @@ function readError(payload: unknown): string {
 }
 
 async function postJson<T>(path: string, body: unknown, accessToken: string, signal?: AbortSignal): Promise<T> {
-  if (!apiBaseUrl) {
-    throw new ApiError('The API URL is not configured for this extension build.', 0);
-  }
-
+  if (!apiBaseUrl) throw new ApiError('The API URL is not configured for this extension build.', 0);
   const response = await fetch(`${apiBaseUrl}${path}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
     body: JSON.stringify(body),
     signal,
   });
-  const payload: unknown = await response.json().catch(() => undefined);
-  if (!response.ok || !payload || typeof payload !== 'object' || !('ok' in payload) || payload.ok !== true) {
-    throw new ApiError(readError(payload), response.status);
-  }
-  return payload as T;
+  return parseResponse<T>(response);
 }
 
 export function askAssistant(question: string, accessToken: string, conversationId?: string, signal?: AbortSignal): Promise<AskResponse> {
@@ -56,6 +46,14 @@ export function createConversation(accessToken: string, title?: string): Promise
 
 export function getConversationMessages(accessToken: string, conversationId: string): Promise<{ ok: true; messages: ConversationMessage[] }> {
   return getJson(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, accessToken);
+}
+
+export function renameConversation(accessToken: string, conversationId: string, title: string): Promise<{ ok: true; conversation: Conversation }> {
+  return patchJson(`/api/conversations/${encodeURIComponent(conversationId)}`, { title }, accessToken);
+}
+
+export function deleteConversation(accessToken: string, conversationId: string): Promise<{ ok: true }> {
+  return deleteJson(`/api/conversations/${encodeURIComponent(conversationId)}`, accessToken);
 }
 
 export function getProfile(accessToken: string): Promise<ProfileResponse> {
@@ -82,19 +80,33 @@ export function setGeminiKey(accessToken: string, apiKey: string): Promise<{ ok:
   return postJson('/api/me/api-key', { apiKey }, accessToken);
 }
 
-export async function removeGeminiKey(accessToken: string): Promise<{ ok: true; geminiKeyConfigured: false }> {
-  if (!apiBaseUrl) throw new ApiError('The API URL is not configured for this extension build.', 0);
-  const response = await fetch(`${apiBaseUrl}/api/me/api-key`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } });
-  const payload: unknown = await response.json().catch(() => undefined);
-  if (!response.ok || !payload || typeof payload !== 'object' || !('ok' in payload) || payload.ok !== true) {
-    throw new ApiError(readError(payload), response.status);
-  }
-  return payload as { ok: true; geminiKeyConfigured: false };
+export function removeGeminiKey(accessToken: string): Promise<{ ok: true; geminiKeyConfigured: false }> {
+  return deleteJson('/api/me/api-key', accessToken);
 }
 
 async function getJson<T>(path: string, accessToken: string): Promise<T> {
   if (!apiBaseUrl) throw new ApiError('The API URL is not configured for this extension build.', 0);
-  const response = await fetch(`${apiBaseUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  return parseResponse<T>(await fetch(`${apiBaseUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}` } }));
+}
+
+async function patchJson<T>(path: string, body: unknown, accessToken: string): Promise<T> {
+  if (!apiBaseUrl) throw new ApiError('The API URL is not configured for this extension build.', 0);
+  return parseResponse<T>(await fetch(`${apiBaseUrl}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify(body),
+  }));
+}
+
+async function deleteJson<T>(path: string, accessToken: string): Promise<T> {
+  if (!apiBaseUrl) throw new ApiError('The API URL is not configured for this extension build.', 0);
+  return parseResponse<T>(await fetch(`${apiBaseUrl}${path}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  }));
+}
+
+async function parseResponse<T>(response: Response): Promise<T> {
   const payload: unknown = await response.json().catch(() => undefined);
   if (!response.ok || !payload || typeof payload !== 'object' || !('ok' in payload) || payload.ok !== true) {
     throw new ApiError(readError(payload), response.status);

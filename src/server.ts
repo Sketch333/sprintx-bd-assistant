@@ -8,7 +8,7 @@ import { answerQuestion } from './lib/ask-service';
 import { createDraft } from './lib/draft-service';
 import { createUser, getUserApiKey, getUserById, listUsers, removeUserApiKey, setUserApiKey } from './lib/user-store';
 import { createVectorStore } from './lib/vector-store';
-import { appendConversationMessages, createConversation, getConversationMessages, listConversations } from './lib/conversation-store';
+import { appendConversationMessages, createConversation, deleteConversation, getConversationMessages, listConversations, updateConversation } from './lib/conversation-store';
 
 const app = express();
 const vectorStorePromise = createVectorStore();
@@ -44,7 +44,7 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   }
 
   if (req.method === 'OPTIONS') {
@@ -402,6 +402,31 @@ app.post('/api/conversations', async (req: Request, res: Response) => {
     return res.status(201).json({ ok: true, conversation: await createConversation(user.id, title) });
   } catch (error) {
     return sendError(res, error, 'Unknown conversation creation error');
+  }
+});
+
+app.patch('/api/conversations/:id', async (req: Request, res: Response) => {
+  try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (!user) return res.status(401).json({ ok: false, error: 'Authentication required' });
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 120) : '';
+    if (!title) return res.status(400).json({ ok: false, error: 'Conversation title is required' });
+    const conversationId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    return res.json({ ok: true, conversation: await updateConversation(user.id, conversationId, title) });
+  } catch (error) {
+    return sendError(res, error, 'Unknown conversation update error');
+  }
+});
+
+app.delete('/api/conversations/:id', async (req: Request, res: Response) => {
+  try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (!user) return res.status(401).json({ ok: false, error: 'Authentication required' });
+    const conversationId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    await deleteConversation(user.id, conversationId);
+    return res.json({ ok: true });
+  } catch (error) {
+    return sendError(res, error, 'Unknown conversation deletion error');
   }
 });
 

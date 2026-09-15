@@ -44,6 +44,22 @@ export async function createConversation(userId: string, title = 'New conversati
   return fromConversation(data);
 }
 
+export async function updateConversation(userId: string, conversationId: string, title: string): Promise<Conversation> {
+  const client = requireStore();
+  const { data, error } = await client.from('conversations').update({ title: title.trim(), updated_at: new Date().toISOString() })
+    .eq('id', conversationId).eq('user_id', userId).select('*').maybeSingle();
+  if (error) throw new Error(`Conversation update failed: ${error.message}`);
+  if (!data) throw new Error('Conversation not found');
+  return fromConversation(data);
+}
+
+export async function deleteConversation(userId: string, conversationId: string): Promise<void> {
+  const client = requireStore();
+  const { data, error } = await client.from('conversations').delete().eq('id', conversationId).eq('user_id', userId).select('id').maybeSingle();
+  if (error) throw new Error(`Conversation deletion failed: ${error.message}`);
+  if (!data) throw new Error('Conversation not found');
+}
+
 export async function getConversationMessages(userId: string, conversationId: string): Promise<ConversationMessage[]> {
   const client = requireStore();
   const { data, error } = await client.from('conversation_messages').select('*, conversations!inner(user_id)')

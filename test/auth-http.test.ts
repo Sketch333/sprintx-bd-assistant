@@ -48,6 +48,25 @@ test('protected endpoints return 401 when authentication is missing', async () =
           }
         });
 
+        test('conversation management rejects unauthenticated requests', async () => {
+          const app = require('../src/server').default as import('express').Express;
+          const server = app.listen(0);
+
+          try {
+            const { port } = server.address() as AddressInfo;
+            const patchResponse = await fetch(`http://127.0.0.1:${port}/api/conversations/00000000-0000-0000-0000-000000000000`, {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ title: 'Renamed' }),
+            });
+            const deleteResponse = await fetch(`http://127.0.0.1:${port}/api/conversations/00000000-0000-0000-0000-000000000000`, { method: 'DELETE' });
+            assert.equal(patchResponse.status, 401);
+            assert.equal(deleteResponse.status, 401);
+          } finally {
+            await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
+          }
+        });
+
         test('Gemini key profile endpoint rejects unauthenticated requests', async () => {
           const app = require('../src/server').default as import('express').Express;
           const server = app.listen(0);
