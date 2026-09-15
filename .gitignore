@@ -5,3 +5,4 @@ dist/
 !.env.example
 data/users.json
 *.log
+*.tsbuildinfo
