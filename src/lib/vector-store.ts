@@ -1,0 +1,267 @@
+const { Pool } = require('pg');
+const { v4: uuidv4 } = require('uuid');
+
+import { config } from '../config';
+import { KnowledgeChunk, SearchResult, SourceRecord } from '../types';
+import { generateEmbedding } from './embeddings';
+
+export interface VectorStore {
+  addSource(source: SourceRecord): Promise<void>;
+  addChunk(chunk: KnowledgeChunk): Promise<void>;
+  search(query: string, limit?: number): Promise<SearchResult[]>;
+  getStats(): Promise<{ chunkCount: number; sourceCount: number }>;
+}
+
+export class MemoryVectorStore implements VectorStore {
+  private sources = new Map<string, SourceRecord>();
+  private chunks: KnowledgeChunk[] = [];
+  private embeddings = new Map<string, number[]>();
+
+  async addSource(source: SourceRecord): Promise<void> {
+    this.sources.set(source.id, source);
+  }
+
+  async addChunk(chunk: KnowledgeChunk): Promise<void> {
+    this.chunks.push(chunk);
+    this.embeddings.set(chunk.id, await generateEmbedding(chunk.content));
+  }
+
+  async search(query: string, limit = 5): Promise<SearchResult[]> {
+    const queryEmbedding = await generateEmbedding(query);
+
+    const results = this.chunks
+      .map((chunk) => {
+        const embedding = this.embeddings.get(chunk.id) ?? new Array(1536).fill(0);
+        const vectorScore = cosineSimilarity(queryEmbedding, embedding);
+        const lexicalScore = lexicalSimilarity(query, chunk.content);
+        const score = Math.max(vectorScore, lexicalScore);
+
+        return {
+          id: chunk.id,
+          score,
+          content: chunk.content,
+          sourceId: chunk.sourceId,
+          sourcePath: chunk.sourcePath,
+          sourceType: chunk.sourceType,
+          sourceTitle: chunk.sourceTitle,
+          sourceUrl: chunk.sourceUrl,
+          chunkIndex: chunk.chunkIndex,
+        } satisfies SearchResult;
+      })
+      .sort((left, right) => right.score - left.score)
+      .slice(0, limit);
+
+    return results;
+  }
+
+  async getStats(): Promise<{ chunkCount: number; sourceCount: number }> {
+    return {
+      chunkCount: this.chunks.length,
+      sourceCount: this.sources.size,
+    };
+  }
+}
+
+export class PgVectorStore implements VectorStore {
+  private readonly pool: any;
+
+  constructor(connectionString: string) {
+    this.pool = new Pool({ connectionString });
+  }
+
+  async addSource(source: SourceRecord): Promise<void> {
+    await this.pool.query(
+      `
+        CREATE TABLE IF NOT EXISTS kb_sources (
+          id TEXT PRIMARY KEY,
+          source_type TEXT NOT NULL,
+          source_title TEXT NOT NULL,
+          source_path TEXT NOT NULL,
+          source_url TEXT,
+          status TEXT NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL,
+          metadata JSONB
+        );
+      `,
+    );
+
+    await this.pool.query(
+      `
+        INSERT INTO kb_sources (id, source_type, source_title, source_path, source_url, status, updated_at, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (id) DO UPDATE SET
+          source_type = EXCLUDED.source_type,
+          source_title = EXCLUDED.source_title,
+          source_path = EXCLUDED.source_path,
+          source_url = EXCLUDED.source_url,
+          status = EXCLUDED.status,
+          updated_at = EXCLUDED.updated_at,
+          metadata = EXCLUDED.metadata;
+      `,
+      [
+        source.id,
+        source.sourceType,
+        source.sourceTitle,
+        source.sourcePath,
+        source.sourceUrl ?? null,
+        source.status,
+        source.updatedAt,
+        JSON.stringify(source.metadata ?? {}),
+      ],
+    );
+  }
+
+  async addChunk(chunk: KnowledgeChunk): Promise<void> {
+    await this.pool.query(`CREATE EXTENSION IF NOT EXISTS vector;`);
+    await this.pool.query(
+      `
+        CREATE TABLE IF NOT EXISTS kb_chunks (
+          id TEXT PRIMARY KEY,
+          content TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          source_path TEXT NOT NULL,
+          source_type TEXT NOT NULL,
+          source_title TEXT NOT NULL,
+          source_url TEXT,
+          chunk_index INTEGER NOT NULL,
+          embedding vector(1536),
+          metadata JSONB
+        );
+      `,
+    );
+
+    const embedding = await generateEmbedding(chunk.content);
+
+    await this.pool.query(
+      `
+        INSERT INTO kb_chunks (id, content, source_id, source_path, source_type, source_title, source_url, chunk_index, embedding, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, $10)
+        ON CONFLICT (id) DO UPDATE SET
+          content = EXCLUDED.content,
+          source_id = EXCLUDED.source_id,
+          source_path = EXCLUDED.source_path,
+          source_type = EXCLUDED.source_type,
+          source_title = EXCLUDED.source_title,
+          source_url = EXCLUDED.source_url,
+          chunk_index = EXCLUDED.chunk_index,
+          embedding = EXCLUDED.embedding,
+          metadata = EXCLUDED.metadata;
+      `,
+      [
+        chunk.id,
+        chunk.content,
+        chunk.sourceId,
+        chunk.sourcePath,
+        chunk.sourceType,
+        chunk.sourceTitle,
+        chunk.sourceUrl ?? null,
+        chunk.chunkIndex,
+        `[${embedding.join(',')}]`,
+        JSON.stringify(chunk.metadata ?? {}),
+      ],
+    );
+  }
+
+  async search(query: string, limit = 5): Promise<SearchResult[]> {
+    const embedding = await generateEmbedding(query);
+
+    const { rows } = await this.pool.query(
+      `
+        SELECT
+          id,
+          1 - (embedding <=> $1::vector) AS score,
+          content,
+          source_id AS "sourceId",
+          source_path AS "sourcePath",
+          source_type AS "sourceType",
+          source_title AS "sourceTitle",
+          source_url AS "sourceUrl",
+          chunk_index AS "chunkIndex"
+        FROM kb_chunks
+        ORDER BY embedding <=> $1::vector
+        LIMIT $2;
+      `,
+      [`[${embedding.join(',')}]`, limit],
+    );
+
+    return rows.map((row: any) => ({
+      id: row.id,
+      score: Number(row.score),
+      content: row.content,
+      sourceId: row.sourceId,
+      sourcePath: row.sourcePath,
+      sourceType: row.sourceType,
+      sourceTitle: row.sourceTitle,
+      sourceUrl: row.sourceUrl ?? undefined,
+      chunkIndex: Number(row.chunkIndex),
+    }));
+  }
+
+  async getStats(): Promise<{ chunkCount: number; sourceCount: number }> {
+    const [{ rows: chunkRows }, { rows: sourceRows }] = await Promise.all([
+      this.pool.query('SELECT COUNT(*) AS count FROM kb_chunks;'),
+      this.pool.query('SELECT COUNT(*) AS count FROM kb_sources;'),
+    ]);
+
+    return {
+      chunkCount: Number(chunkRows[0]?.count ?? 0),
+      sourceCount: Number(sourceRows[0]?.count ?? 0),
+    };
+  }
+}
+
+export async function createVectorStore(): Promise<VectorStore> {
+  if (config.databaseUrl) {
+    return new PgVectorStore(config.databaseUrl);
+  }
+
+  return new MemoryVectorStore();
+}
+
+function cosineSimilarity(left: number[], right: number[]): number {
+  if (!left.length || !right.length || left.length !== right.length) {
+    return 0;
+  }
+
+  let numerator = 0;
+  let leftMagnitude = 0;
+  let rightMagnitude = 0;
+
+  for (let index = 0; index < left.length; index += 1) {
+    numerator += left[index] * right[index];
+    leftMagnitude += left[index] * left[index];
+    rightMagnitude += right[index] * right[index];
+  }
+
+  if (leftMagnitude === 0 || rightMagnitude === 0) {
+    return 0;
+  }
+
+  return numerator / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
+}
+
+function lexicalSimilarity(left: string, right: string): number {
+  const leftTerms = normalizeTerms(left);
+  const rightTerms = normalizeTerms(right);
+  if (!leftTerms.length || !rightTerms.length) {
+    return 0;
+  }
+
+  const leftSet = new Set(leftTerms);
+  const overlap = rightTerms.filter((term) => leftSet.has(term));
+  const count = overlap.length;
+  const denominator = Math.max(leftTerms.length, rightTerms.length);
+  if (!denominator) {
+    return 0;
+  }
+
+  return count / denominator;
+}
+
+function normalizeTerms(value: string): string[] {
+  return value.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+}
+
+export function makeSourceId(kind: 'document' | 'site' | 'sheet', name: string): string {
+  return `${kind}-${uuidv4()}-${name.replace(/[^a-zA-Z0-9-_]+/g, '-').slice(0, 48)}`;
+}

@@ -1,0 +1,46 @@
+{
+  "name": "sprintx-bd-assistant",
+  "version": "0.1.0",
+  "description": "SprintX BD assistant MVP knowledge-base ingestion and vector search foundation",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "ingest": "tsx src/scripts/ingest.ts",
+    "search": "tsx src/scripts/search.ts",
+    "test": "tsx --test test/**/*.test.ts"
+  },
+  "keywords": [
+    "sprintx",
+    "bd-assistant",
+    "vector-search",
+    "chrome-extension"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@supabase/supabase-js": "^2.116.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.5.1",
+    "@types/uuid": "^10.0.0",
+    "axios": "^1.20.0",
+    "cheerio": "^1.2.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jose": "^6.2.12",
+    "mammoth": "^1.12.3",
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.23.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "uuid": "^14.0.2",
+    "xlsx": "^0.18.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@vercel/node": "^13.0.1"
+  }
+}
