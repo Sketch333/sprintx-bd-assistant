@@ -20,4 +20,6 @@ export const config = {
   googleApiKey: process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '',
   testGeminiApiKey: process.env.TEST_GEMINI_API_KEY ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '',
   siteUrls: (process.env.SITE_URLS ?? defaultSiteUrls.join(',')).split(',').map((value) => value.trim()).filter(Boolean),
+  googleDriveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID ?? '',
+  googleServiceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? '',
 };

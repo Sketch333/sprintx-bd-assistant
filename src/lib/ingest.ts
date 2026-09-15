@@ -198,6 +198,138 @@ async function extractTextFromFile(filePath: string): Promise<string> {
   return '';
 }
 
+export type GoogleDriveSyncOptions = {
+  folderId: string;
+  serviceAccountJson: string;
+};
+
+type GoogleDriveFile = {
+  id: string;
+  name: string;
+  mimeType: string;
+  modifiedTime?: string;
+  webViewLink?: string;
+};
+
+const googleExportMimeTypes: Record<string, { mimeType: string; sourceType: SourceType }> = {
+  'application/vnd.google-apps.document': { mimeType: 'text/plain', sourceType: 'document' },
+  'application/vnd.google-apps.spreadsheet': { mimeType: 'text/csv', sourceType: 'sheet' },
+};
+
+export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options: GoogleDriveSyncOptions): Promise<{ discovered: number; chunks: number; sources: number }> {
+  const credentials = JSON.parse(options.serviceAccountJson) as { client_email?: string; private_key?: string };
+  if (!credentials.client_email || !credentials.private_key) {
+    throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON must contain client_email and private_key');
+  }
+
+  const accessToken = await createGoogleAccessToken(credentials.client_email, credentials.private_key);
+  const files = await listGoogleDriveFiles(options.folderId, accessToken);
+  let chunkCount = 0;
+
+  for (const file of files) {
+    const text = await downloadGoogleDriveText(file, accessToken);
+    if (!text.trim()) continue;
+
+    const sourceId = `gdrive-${file.id}`;
+    const source: SourceRecord = {
+      id: sourceId,
+      sourceType: googleExportMimeTypes[file.mimeType]?.sourceType ?? 'document',
+      sourceTitle: file.name,
+      sourcePath: `Google Drive/${file.name}`,
+      sourceUrl: file.webViewLink,
+      status: 'active',
+      updatedAt: file.modifiedTime ?? new Date().toISOString(),
+      metadata: { source: 'google-drive', driveFileId: file.id, mimeType: file.mimeType },
+    };
+    await vectorStore.addSource(source);
+
+    for (const [index, chunk] of chunkText(text).entries()) {
+      await vectorStore.addChunk({
+        id: `${sourceId}-chunk-${index}`,
+        content: chunk,
+        sourceId,
+        sourcePath: source.sourcePath,
+        sourceType: source.sourceType,
+        sourceTitle: source.sourceTitle,
+        sourceUrl: source.sourceUrl,
+        chunkIndex: index,
+        metadata: { driveFileId: file.id, modifiedTime: file.modifiedTime ?? null },
+      });
+      chunkCount += 1;
+    }
+  }
+
+  const stats = await vectorStore.getStats();
+  return { discovered: files.length, chunks: chunkCount, sources: stats.sourceCount };
+}
+
+async function createGoogleAccessToken(clientEmail: string, privateKey: string): Promise<string> {
+  const { SignJWT, importPKCS8 } = await import('jose');
+  const key = await importPKCS8(privateKey, 'RS256');
+  const assertion = await new SignJWT({ scope: 'https://www.googleapis.com/auth/drive.readonly' })
+    .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+    .setIssuer(clientEmail)
+    .setAudience('https://oauth2.googleapis.com/token')
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .sign(key);
+  const response = await axios.post('https://oauth2.googleapis.com/token', new URLSearchParams({
+    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+    assertion,
+  }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 });
+  return String(response.data.access_token);
+}
+
+async function listGoogleDriveFiles(folderId: string, accessToken: string): Promise<GoogleDriveFile[]> {
+  const files: GoogleDriveFile[] = [];
+  let pageToken: string | undefined;
+  do {
+    const response = await axios.get('https://www.googleapis.com/drive/v3/files', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: {
+        q: `'${folderId}' in parents and trashed = false`,
+        pageSize: 1000,
+        pageToken,
+        fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink)',
+      },
+      timeout: 20000,
+    });
+    files.push(...(response.data.files ?? []));
+    pageToken = response.data.nextPageToken;
+  } while (pageToken);
+  return files;
+}
+
+async function downloadGoogleDriveText(file: GoogleDriveFile, accessToken: string): Promise<string> {
+  const exportDetails = googleExportMimeTypes[file.mimeType];
+  const url = exportDetails
+    ? `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}/export`
+    : `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}`;
+  const response = await axios.get(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    params: exportDetails ? { mimeType: exportDetails.mimeType } : undefined,
+    responseType: 'arraybuffer',
+    timeout: 30000,
+  });
+  if (exportDetails || file.mimeType.startsWith('text/')) return Buffer.from(response.data).toString('utf8');
+  return extractTextFromBuffer(Buffer.from(response.data), file.name);
+}
+
+async function extractTextFromBuffer(buffer: Buffer, fileName: string): Promise<string> {
+  const extension = path.extname(fileName).toLowerCase();
+  if (extension === '.txt' || extension === '.md' || extension === '.csv') return buffer.toString('utf8');
+  if (extension === '.pdf') return (await pdfParse(buffer)).text;
+  if (extension === '.docx') return (await mammoth.extractRawText({ buffer })).value;
+  if (extension === '.xlsx' || extension === '.xls') {
+    const workbook = XLSX.read(buffer);
+    return workbook.SheetNames.flatMap((sheetName: string) => {
+      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { raw: false, blankrows: false, defval: '' });
+      return rows.map((row: unknown) => Object.values(row as Record<string, unknown>).filter(Boolean).join(' '));
+    }).join(' ');
+  }
+  return '';
+}
+
 function buildSourceRecord(filePath: string, content: string): SourceRecord {
   const fileName = path.basename(filePath);
   const directoryName = path.basename(path.dirname(filePath));

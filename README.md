@@ -26,6 +26,7 @@ This project initializes the SprintX BD Assistant Milestone 1 foundation: a loca
 
 - `GET /health`
 - `POST /api/kb/ingest`
+- `POST /api/kb/drive-sync` (admin-only Google Drive sync)
 - `POST /api/kb/search`
 - `POST /api/ask`
 - `POST /api/draft`
@@ -64,3 +65,5 @@ The Vercel project must allow the extension origin for CORS. The current backend
 ## Notes
 
 The deployed backend now supports authenticated Ask and Draft workflows. Production Google Drive synchronization, conversation history, and an admin dashboard remain future milestones.
+
+To enable Google Drive sync, share the source folder with the service-account email and configure `GOOGLE_DRIVE_FOLDER_ID` plus `GOOGLE_SERVICE_ACCOUNT_JSON` in Vercel. The JSON value must contain the service account's `client_email` and `private_key`; keep it server-side and never add it to the extension.
