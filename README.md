@@ -42,6 +42,24 @@ This project initializes the SprintX BD Assistant Milestone 1 foundation: a loca
 
 When Supabase variables are absent, local development uses the encrypted JSON user store. Hosted deployments should always use Supabase and `REQUIRE_AUTH=true`.
 
+## Chrome side-panel extension
+
+The first user-facing Ask workflow is in `extension/`. It uses the public Vercel API URL and Supabase public client configuration at build time.
+
+1. Create `extension/.env` from [`extension/.env.example`](./extension/.env.example). Use your production Vercel URL, Supabase project URL, and public anon/publishable key. Never put service-role keys or Gemini secrets in this file.
+2. Build the extension:
+
+   ```text
+   npm run extension:install
+   npm run extension:build
+   ```
+
+3. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select `extension/dist`.
+4. Copy the generated extension ID. Supabase Auth must allow the redirect URL `https://<extension-id>.chromiumapp.org/supabase-auth` under Authentication → URL Configuration.
+5. Click the extension toolbar icon, sign in with Google, and ask a question.
+
+The Vercel project must allow the extension origin for CORS. The current backend accepts `chrome-extension://` origins; set `ALLOWED_EXTENSION_ORIGINS` to the exact extension origin in Vercel when you want to narrow this further.
+
 ## Notes
 
 This is intentionally scoped to the Milestone 1 ingestion foundation. Ask mode, Draft mode, auth, and extension UI are planned for later milestones.

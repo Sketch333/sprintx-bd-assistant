@@ -9,6 +9,8 @@
     "start": "node dist/server.js",
     "ingest": "tsx src/scripts/ingest.ts",
     "search": "tsx src/scripts/search.ts",
+    "extension:install": "npm --prefix extension install",
+    "extension:build": "npm --prefix extension run build",
     "test": "npm run build && node --no-experimental-require-module test/commonjs-runtime.test.cjs && tsx --test test/**/*.test.ts"
   },
   "keywords": [

@@ -10,6 +10,28 @@ import { createVectorStore } from './lib/vector-store';
 const app = express();
 const vectorStorePromise = createVectorStore();
 
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const configuredOrigins = (process.env.ALLOWED_EXTENSION_ORIGINS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const isChromeExtensionOrigin = typeof origin === 'string' && origin.startsWith('chrome-extension://');
+
+  if (origin && (configuredOrigins.includes(origin) || isChromeExtensionOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  }
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+
+  return next();
+});
+
 app.use(express.json());
 
 export default app;
