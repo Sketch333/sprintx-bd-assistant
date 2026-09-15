@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { ApiError, askAssistant, createConversation, createUser, draftMessage, getProfile, listConversations, listUsers, removeGeminiKey, setGeminiKey, syncKnowledgeBase } from './api';
+import { ApiError, askAssistant, crawlWebsites, createConversation, createUser, draftMessage, getProfile, listConversations, listUsers, removeGeminiKey, setGeminiKey, syncGoogleDrive } from './api';
 import { signInWithGoogle, supabase } from './supabase';
 import type { AskResponse, DraftInput, DraftResponse, ProvisionedUser } from './types';
 
@@ -168,16 +168,31 @@ export function App() {
     }
   }
 
-  async function handleSync() {
+  async function handleDriveSync() {
     if (!session?.access_token) return;
     setAdminBusy(true);
     setSyncMessage('');
     setError('');
     try {
-      const response = await syncKnowledgeBase(session.access_token);
+      const response = await syncGoogleDrive(session.access_token);
       setSyncMessage(`Google Drive sync complete: ${JSON.stringify(response.result)}`);
     } catch (syncError) {
-      setError(syncError instanceof Error ? syncError.message : 'Knowledge-base sync failed.');
+      setError(syncError instanceof Error ? syncError.message : 'Google Drive sync failed.');
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
+  async function handleWebsiteCrawl() {
+    if (!session?.access_token) return;
+    setAdminBusy(true);
+    setSyncMessage('');
+    setError('');
+    try {
+      const response = await crawlWebsites(session.access_token);
+      setSyncMessage(`Website crawl complete: ${JSON.stringify(response.result.sites)}`);
+    } catch (syncError) {
+      setError(syncError instanceof Error ? syncError.message : 'Website crawl failed.');
     } finally {
       setAdminBusy(false);
     }
@@ -262,7 +277,10 @@ export function App() {
               <select id="new-user-role" value={newUser.role} onChange={(event) => setNewUser({ ...newUser, role: event.target.value as 'admin' | 'intern' })}><option value="intern">Intern</option><option value="admin">Admin</option></select>
               <button className="primary-button full" type="submit" disabled={adminBusy || !newUser.name.trim() || !newUser.email.trim()}>Provision user</button>
             </form>
-            <button className="primary-button full" type="button" onClick={handleSync} disabled={adminBusy}>{adminBusy ? 'Working...' : 'Run knowledge sync'}</button>
+            <div className="admin-actions">
+              <button className="primary-button" type="button" onClick={handleDriveSync} disabled={adminBusy}>{adminBusy ? 'Working...' : 'Sync Google Drive'}</button>
+              <button className="secondary-button" type="button" onClick={handleWebsiteCrawl} disabled={adminBusy}>{adminBusy ? 'Working...' : 'Crawl websites'}</button>
+            </div>
             {syncMessage && <p className="key-status">{syncMessage}</p>}
             <div className="user-list">{users.map((user) => <div className="user-row" key={user.id}><span>{user.name}<small>{user.email}</small></span><strong>{user.role}</strong></div>)}</div>
           </section>}

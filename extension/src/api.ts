@@ -70,8 +70,12 @@ export function createUser(accessToken: string, input: { email: string; name: st
   return postJson('/api/users', input, accessToken);
 }
 
-export function syncKnowledgeBase(accessToken: string): Promise<{ ok: true; result: { drive: unknown; sites: unknown } }> {
+export function syncGoogleDrive(accessToken: string): Promise<{ ok: true; result: { discovered: number; chunks: number; sources: number; removed: number } }> {
   return postJson('/api/kb/drive-sync', {}, accessToken);
+}
+
+export function crawlWebsites(accessToken: string): Promise<{ ok: true; result: { drive: unknown; sites: unknown } }> {
+  return postJson('/api/kb/ingest', {}, accessToken);
 }
 
 export function setGeminiKey(accessToken: string, apiKey: string): Promise<{ ok: true; geminiKeyConfigured: true }> {

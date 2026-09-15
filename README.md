@@ -25,7 +25,7 @@ This project initializes the SprintX BD Assistant Milestone 1 foundation: a loca
 ## API
 
 - `GET /health`
-- `POST /api/kb/ingest`
+- `POST /api/kb/ingest` (admin-only configured local/website ingestion)
 - `POST /api/kb/drive-sync` (admin-only Google Drive sync)
 - `POST /api/kb/search`
 - `POST /api/ask`
@@ -72,10 +72,10 @@ Google Drive sync recursively scans the configured folder and its subfolders. Ea
 
 The extension Settings view can save, replace, or remove a user's Gemini key. The raw key is sent over HTTPS to the backend, encrypted there, and never returned or stored in the extension.
 
-Admins also have an Admin view for provisioning users and starting the existing authenticated knowledge-base ingestion. The backend remains the source of truth for authorization.
+Admins also have an Admin view for provisioning users and independently syncing Google Drive or crawling configured websites. The backend remains the source of truth for authorization.
 
 ## Notes
 
-The deployed backend now supports authenticated Ask, Draft, and persistent conversation workflows. An admin dashboard remains a future milestone.
+The deployed backend now supports authenticated Ask, Draft, persistent conversation workflows, and admin controls in the extension.
 
 To enable Google Drive sync, share the source folder with the service-account email and configure `GOOGLE_DRIVE_FOLDER_ID` plus `GOOGLE_SERVICE_ACCOUNT_JSON` in Vercel. The JSON value must contain the service account's `client_email` and `private_key`; keep it server-side and never add it to the extension.
