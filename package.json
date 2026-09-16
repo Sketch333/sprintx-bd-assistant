@@ -42,6 +42,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@vercel/node": "^13.0.1"
   }
 }
