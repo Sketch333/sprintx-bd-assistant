@@ -75,7 +75,11 @@ Google Drive sync recursively scans the configured folder and its subfolders. Ea
 
 Website crawling also uses stable URL-derived source IDs and replaces stale chunks for an existing source, so repeated crawls update knowledge instead of accumulating duplicate content.
 
-Local Drive-style ingestion uses stable normalized file-path source IDs, replaces duplicate in-memory chunks, and removes local sources/files that are no longer present after a successful scan. Website and Google Drive sources are left untouched by local reconciliation.
+Local Drive-style ingestion uses stable normalized file-path source IDs and replaces duplicate in-memory chunks. Missing directories fail safely; successful reconciliation removes only stale sources tagged with that ingestion root. Untagged legacy sources are retained until re-ingested or migrated. Website and Google Drive sources are left untouched by local reconciliation.
+
+Production/persistent embeddings require a Gemini key and use one embedding model (`gemini-embedding-001`). Failures are surfaced rather than silently mixing incompatible vectors. Re-index any older knowledge generated with local or other-model fallback embeddings after reviewing the deployment. Google Drive blob downloads request media, Sheets imports cover all tabs via XLSX, and Archive folders are excluded.
+
+See [audit fix verification](./docs/review-fixes.tdd.md) for regression evidence and remaining live-test gaps. Run `npm run extension:test` for React account/history regressions.
 
 The extension Settings view can save, replace, or remove a user's Gemini key. The raw key is sent over HTTPS to the backend, encrypted there, and never returned or stored in the extension.
 
