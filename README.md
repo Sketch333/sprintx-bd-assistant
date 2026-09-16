@@ -2,6 +2,8 @@
 
 ## API hosting versus the extension
 
+For a failed Drive sync, open Vercel Logs, filter `/api/kb/drive-sync`, and inspect `embedding_failure` entries. These include `quotaViolations` (Google's available quota metric, ID, and numeric limit) and `retryDelaySeconds` when returned by Google. Empty diagnostics mean Google did not provide recognized details; they do not prove quota is available. Provider messages, URLs, keys, document text, and arbitrary detail fields are excluded. Retry delay is diagnostic only; the existing bounded retry policy is unchanged.
+
 Vercel hosts the Express API, not the Chrome extension UI. Every URL is routed to `api/index.ts`; `/` deliberately returns service-status JSON. To use the UI, run `npm run extension:build`, open `chrome://extensions`, enable Developer mode, and load the `extension/dist` directory using **Load unpacked**. Open the extension's side panel. Hosting a normal browser UI would require a separate web build, routing, and browser-compatible authentication.
 
 Embedding requests use `gemini-embedding-001` with 1536 dimensions, a 15-second SDK request timeout, and at most three attempts with exponential backoff for transient failures. They never switch to an incompatible vector space. Safe errors and structured `embedding_failure` logs include the provider HTTP status, without keys or raw provider payloads. HTTP 429 requires checking the server key's Google AI Studio quota; retries cannot overcome an exhausted quota. HTTP 401/403 requires checking server-key permissions and restrictions. A failed sync is not a completed sync: resolve the reported cause and rerun before relying on newly imported documents.

@@ -22,6 +22,31 @@ export const LIVE_MODELS = [
 
 export const EMBEDDING_DIMENSIONS = 1536;
 
+function safeQuotaDiagnostics(error: unknown, apiKey: string) {
+  const quotaViolations: Array<{ quotaMetric?: string; quotaId?: string; quotaValue?: string }> = [];
+  let retryDelaySeconds: number | null = null;
+  const details = (error as { errorDetails?: unknown } | null)?.errorDetails;
+  if (Array.isArray(details)) {
+    for (const detail of details.slice(0, 20)) {
+      if (!detail || typeof detail !== 'object') continue;
+      if (detail['@type'] === 'type.googleapis.com/google.rpc.QuotaFailure' && Array.isArray(detail.violations)) {
+        for (const violation of detail.violations.slice(0, 10)) {
+          if (!violation || typeof violation !== 'object') continue;
+          const safe: { quotaMetric?: string; quotaId?: string; quotaValue?: string } = {};
+          if (typeof violation.quotaMetric === 'string' && /^generativelanguage\.googleapis\.com\/[a-z_]{1,150}$/.test(violation.quotaMetric) && !violation.quotaMetric.includes(apiKey)) safe.quotaMetric = violation.quotaMetric;
+          if (typeof violation.quotaId === 'string' && /^(?:Embed|Generate|Batch)[A-Za-z0-9_-]{1,150}$/.test(violation.quotaId) && !violation.quotaId.includes(apiKey)) safe.quotaId = violation.quotaId;
+          if ((typeof violation.quotaValue === 'string' || typeof violation.quotaValue === 'number') && /^\d{1,20}$/.test(String(violation.quotaValue))) safe.quotaValue = String(violation.quotaValue);
+          if (Object.keys(safe).length) quotaViolations.push(safe);
+        }
+      }
+      if (detail['@type'] === 'type.googleapis.com/google.rpc.RetryInfo' && typeof detail.retryDelay === 'string' && /^\d{1,6}(?:\.\d{1,9})?s$/.test(detail.retryDelay)) {
+        retryDelaySeconds = Number(detail.retryDelay.slice(0, -1));
+      }
+    }
+  }
+  return { quotaViolations, retryDelaySeconds };
+}
+
 export class EmbeddingProviderError extends Error {
   constructor(public readonly providerStatus?: number) {
     const reason = providerStatus === 429 ? 'quota or rate limit exceeded; check Google AI Studio quota'
@@ -89,7 +114,7 @@ export async function generateGeminiEmbedding(text: string, apiKey?: string): Pr
       const status = typeof candidate === 'number' && Number.isInteger(candidate) && candidate >= 400 && candidate <= 599 ? candidate : undefined;
       const retryable = status === 429 || (status !== undefined && status >= 500)
         || (status === undefined && !(error instanceof EmbeddingProviderError));
-      console.warn(JSON.stringify({ event: 'embedding_failure', model: modelName, attempt, providerStatus: status ?? null, retrying: retryable && attempt < 3 }));
+      console.warn(JSON.stringify({ event: 'embedding_failure', model: modelName, attempt, providerStatus: status ?? null, retrying: retryable && attempt < 3, ...safeQuotaDiagnostics(error, key) }));
       if (!retryable || attempt === 3) throw new EmbeddingProviderError(status);
       await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** (attempt - 1)));
     }
