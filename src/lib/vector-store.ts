@@ -219,6 +219,7 @@ export class PgVectorStore implements VectorStore {
 
   async search(query: string, limit = 5): Promise<SearchResult[]> {
     const embedding = await generateEmbedding(query);
+    const candidateLimit = Math.max(limit * 10, 50);
 
     const { rows } = await this.pool.query(
       `
@@ -236,20 +237,27 @@ export class PgVectorStore implements VectorStore {
         ORDER BY embedding <=> $1::vector
         LIMIT $2;
       `,
-      [`[${embedding.join(',')}]`, limit],
+      [`[${embedding.join(',')}]`, candidateLimit],
     );
 
-    return rows.map((row: any) => ({
-      id: row.id,
-      score: Number(row.score),
-      content: row.content,
-      sourceId: row.sourceId,
-      sourcePath: row.sourcePath,
-      sourceType: row.sourceType,
-      sourceTitle: row.sourceTitle,
-      sourceUrl: row.sourceUrl ?? undefined,
-      chunkIndex: Number(row.chunkIndex),
-    }));
+    return rows
+      .map((row: any) => {
+        const vectorScore = Number(row.score);
+        const lexicalScore = lexicalCoverage(query, `${row.sourceTitle} ${row.content}`);
+        return {
+          id: row.id,
+          score: Math.max(vectorScore, lexicalScore),
+          content: row.content,
+          sourceId: row.sourceId,
+          sourcePath: row.sourcePath,
+          sourceType: row.sourceType,
+          sourceTitle: row.sourceTitle,
+          sourceUrl: row.sourceUrl ?? undefined,
+          chunkIndex: Number(row.chunkIndex),
+        };
+      })
+      .sort((left: SearchResult, right: SearchResult) => right.score - left.score)
+      .slice(0, limit);
   }
 
   async getStats(): Promise<{ chunkCount: number; sourceCount: number }> {
@@ -311,6 +319,14 @@ function lexicalSimilarity(left: string, right: string): number {
   }
 
   return count / denominator;
+}
+
+function lexicalCoverage(query: string, content: string): number {
+  const queryTerms = new Set(normalizeTerms(query).filter((term) => term.length > 2));
+  if (!queryTerms.size) return 0;
+  const contentTerms = new Set(normalizeTerms(content));
+  const matchedTerms = [...queryTerms].filter((term) => contentTerms.has(term)).length;
+  return matchedTerms / queryTerms.size;
 }
 
 function normalizeTerms(value: string): string[] {
