@@ -9,7 +9,7 @@ export interface VectorStore {
   getSource(id: string): Promise<SourceRecord | undefined>;
   refreshSourceChunks(source: SourceRecord): Promise<void>;
   addSource(source: SourceRecord): Promise<void>;
-  addChunk(chunk: KnowledgeChunk): Promise<void>;
+  addChunk(chunk: KnowledgeChunk): Promise<boolean>;
   removeChunksExcept(sourceId: string, chunkIds: Set<string>): Promise<number>;
   removeSourcesExcept(prefix: string, sourceIds: Set<string>, ingestionRoot?: string): Promise<number>;
   search(query: string, limit?: number): Promise<SearchResult[]>;
@@ -37,11 +37,12 @@ export class MemoryVectorStore implements VectorStore {
     this.sources.set(source.id, source);
   }
 
-  async addChunk(chunk: KnowledgeChunk): Promise<void> {
+  async addChunk(chunk: KnowledgeChunk): Promise<boolean> {
     const existingIndex = this.chunks.findIndex((existing) => existing.id === chunk.id);
     const existing = this.chunks[existingIndex];
     const profile = embeddingProfile();
-    const embedding = existing?.content === chunk.content && existing.metadata?.embeddingProfile === profile && this.embeddings.has(chunk.id)
+    const reused = existing?.content === chunk.content && existing.metadata?.embeddingProfile === profile && this.embeddings.has(chunk.id);
+    const embedding = reused
       ? this.embeddings.get(chunk.id)! : await generateEmbedding(chunk.content);
     chunk = { ...chunk, metadata: { ...chunk.metadata, embeddingProfile: profile } };
     if (existingIndex >= 0) {
@@ -50,6 +51,7 @@ export class MemoryVectorStore implements VectorStore {
       this.chunks.push(chunk);
     }
     this.embeddings.set(chunk.id, embedding);
+    return !reused;
   }
 
   async removeChunksExcept(sourceId: string, chunkIds: Set<string>): Promise<number> {
@@ -114,7 +116,7 @@ export class PgVectorStore implements VectorStore {
   private readonly pool: any;
 
   constructor(connectionString: string) {
-    this.pool = new Pool({ connectionString });
+    this.pool = new Pool({ connectionString, connectionTimeoutMillis: 10000, query_timeout: 15000 });
   }
 
   async getSource(id: string): Promise<SourceRecord | undefined> {
@@ -174,7 +176,7 @@ export class PgVectorStore implements VectorStore {
     );
   }
 
-  async addChunk(chunk: KnowledgeChunk): Promise<void> {
+  async addChunk(chunk: KnowledgeChunk): Promise<boolean> {
     await this.pool.query(`CREATE EXTENSION IF NOT EXISTS vector;`);
     await this.pool.query(
       `
@@ -227,6 +229,7 @@ export class PgVectorStore implements VectorStore {
         JSON.stringify({ ...chunk.metadata, embeddingProfile: profile }),
       ],
     );
+    return !rows.length;
   }
 
   async removeChunksExcept(sourceId: string, chunkIds: Set<string>): Promise<number> {

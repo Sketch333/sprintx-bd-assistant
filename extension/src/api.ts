@@ -1,4 +1,5 @@
 import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftResponse, ProfileResponse, ProvisionedUser } from './types';
+import type { DriveSyncResult } from './drive-sync';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '');
 
@@ -68,8 +69,9 @@ export function createUser(accessToken: string, input: { email: string; name: st
   return postJson('/api/users', input, accessToken);
 }
 
-export function syncGoogleDrive(accessToken: string): Promise<{ ok: true; result: { discovered: number; chunks: number; sources: number; removed: number; failedFiles: string[]; skippedFiles: number } }> {
-  return postJson('/api/kb/drive-sync', {}, accessToken);
+export function syncGoogleDrive(accessToken: string, signal?: AbortSignal): Promise<{ ok: true; result: DriveSyncResult }> {
+  const timeout = AbortSignal.timeout(210000);
+  return postJson('/api/kb/drive-sync', {}, accessToken, signal ? AbortSignal.any([signal, timeout]) : timeout);
 }
 
 export function crawlWebsites(accessToken: string): Promise<{ ok: true; result: { crawled: number; chunks: number; sources: number } }> {
@@ -109,7 +111,11 @@ async function deleteJson<T>(path: string, accessToken: string): Promise<T> {
 async function parseResponse<T>(response: Response): Promise<T> {
   const payload: unknown = await response.json().catch(() => undefined);
   if (!response.ok || !payload || typeof payload !== 'object' || !('ok' in payload) || payload.ok !== true) {
-    throw new ApiError(readError(payload), response.status);
+    const message = !payload && response.status === 504
+      ? 'The server request timed out. Drive sync saved progress can be resumed by restarting sync.'
+      : !payload && response.status >= 500 ? `The API returned HTTP ${response.status}. Inspect the latest Vercel request logs; saved Drive progress is preserved.`
+      : readError(payload);
+    throw new ApiError(message, response.status);
   }
   return payload as T;
 }

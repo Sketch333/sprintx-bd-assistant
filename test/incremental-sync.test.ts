@@ -23,6 +23,9 @@ for (const kind of ['memory', 'postgres'] as const) {
     const oldKey = process.env.GEMINI_API_KEY;
     process.env.GEMINI_API_KEY = 'fixture-key';
     let embeds = 0, downloads = 0, fail = false, listingFails = false;
+    let simulatedTime: number | undefined;
+    const realNow = Date.now;
+    Date.now = () => simulatedTime ?? realNow();
     let emptyFolder = false;
     let content = 'React PostgreSQL';
     let file = { id: 'dream', name: 'Case Study - Dream.txt', mimeType: 'text/plain', modifiedTime: '2026-09-16T00:00:00Z', webViewLink: 'https://drive.google.com/file/d/dream/view' };
@@ -37,6 +40,7 @@ for (const kind of ['memory', 'postgres'] as const) {
     };
     GoogleGenerativeAI.prototype.getGenerativeModel = () => ({ embedContent: async () => {
       embeds++;
+      if (simulatedTime !== undefined) simulatedTime += 121000;
       if (fail) throw Object.assign(new Error('fixture denied'), { status: 403 });
       return { embedding: { values: new Array(1536).fill(1) } };
     } });
@@ -88,6 +92,26 @@ for (const kind of ['memory', 'postgres'] as const) {
       else delete (store as any).chunks[0].metadata.embeddingProfile;
       await ingestGoogleDriveFolder(store, options);
       assert.equal(embeds, afterFailure + 2, 'untagged chunk must be regenerated, tagged chunk reused');
+      content = 'New Dream technology '.repeat(65);
+      file = { ...file, modifiedTime: '2026-09-16T02:30:00Z' };
+      const beforeBatch = embeds;
+      const partial = await ingestGoogleDriveFolder(store, { ...options, maxNewChunks: 1 });
+      assert.equal(partial.complete, false);
+      assert.equal(partial.removed, 0);
+      assert.equal(embeds, beforeBatch + 1);
+      assert.equal((await store.getSource('gdrive-dream'))?.metadata?.syncComplete, false);
+      const continued = await ingestGoogleDriveFolder(store, { ...options, maxNewChunks: 1 });
+      assert.equal(continued.complete, true);
+      assert.equal(embeds, beforeBatch + 2, 'saved chunks do not consume the next batch budget');
+      content = 'Time budget Dream '.repeat(75);
+      file = { ...file, modifiedTime: '2026-09-16T02:40:00Z' };
+      simulatedTime = realNow();
+      const deadlinePause = await ingestGoogleDriveFolder(store, options);
+      assert.equal(deadlinePause.complete, false);
+      assert.equal(deadlinePause.newEmbeddings, 1);
+      assert.equal(deadlinePause.removed, 0);
+      simulatedTime = undefined;
+      assert.equal((await ingestGoogleDriveFolder(store, options)).complete, true);
       const completed = await store.getSource('gdrive-dream');
       assert.ok(completed);
       await store.addSource({ ...completed, id: 'gdrive-stale' });
@@ -110,6 +134,7 @@ for (const kind of ['memory', 'postgres'] as const) {
     } finally {
       axios.get = oldGet; axios.post = oldPost;
       GoogleGenerativeAI.prototype.getGenerativeModel = oldModel;
+      Date.now = realNow;
       if (oldKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = oldKey;
       await db?.close();
     }

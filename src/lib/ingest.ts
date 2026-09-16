@@ -212,6 +212,7 @@ async function extractTextFromFile(filePath: string): Promise<string> {
 export type GoogleDriveSyncOptions = {
   folderId: string;
   serviceAccountJson: string;
+  maxNewChunks?: number;
 };
 
 type GoogleDriveFile = {
@@ -227,22 +228,31 @@ const googleExportMimeTypes: Record<string, { mimeType: string; sourceType: Sour
   'application/vnd.google-apps.spreadsheet': { mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', sourceType: 'sheet' },
 };
 
-export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options: GoogleDriveSyncOptions): Promise<{ discovered: number; chunks: number; sources: number; removed: number; failedFiles: string[]; skippedFiles: number }> {
+export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options: GoogleDriveSyncOptions): Promise<{ discovered: number; chunks: number; sources: number; removed: number; failedFiles: string[]; skippedFiles: number; complete: boolean; newEmbeddings: number }> {
+  const deadline = Date.now() + 120000;
+  const maxNewChunks = Math.max(1, Math.min(10, options.maxNewChunks ?? 10));
   const credentials = JSON.parse(options.serviceAccountJson) as { client_email?: string; private_key?: string };
   if (!credentials.client_email || !credentials.private_key) {
     throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON must contain client_email and private_key');
   }
 
   const accessToken = await createGoogleAccessToken(credentials.client_email, credentials.private_key);
-  const files = await listGoogleDriveFilesRecursively(options.folderId, accessToken);
+  const files = await listGoogleDriveFilesRecursively(options.folderId, accessToken, deadline);
   let chunkCount = 0;
   const activeSourceIds = new Set<string>();
   const failedFiles: string[] = [];
   let skippedFiles = 0;
+  let newEmbeddings = 0;
+  const paused = async () => {
+    const stats = await vectorStore.getStats();
+    console.info(JSON.stringify({ event: 'drive_sync_batch', complete: false, newEmbeddings, skippedFiles }));
+    return { discovered: files.length, chunks: chunkCount, sources: stats.sourceCount, removed: 0, failedFiles, skippedFiles, newEmbeddings, complete: false };
+  };
   const pipelineVersion = `${embeddingProfile()}:drive-text-v1:${DEFAULT_CHUNK_SIZE}:${DEFAULT_CHUNK_OVERLAP}`;
   const ingestionRoot = `google-drive:${options.folderId}`;
 
   for (const file of files) {
+    if (Date.now() >= deadline || newEmbeddings >= maxNewChunks) return paused();
     const sourceId = `gdrive-${file.id}`;
     const previous = await vectorStore.getSource(sourceId);
     const metadata = { source: 'google-drive', driveFileId: file.id, mimeType: file.mimeType, ingestionRoot, modifiedTime: file.modifiedTime ?? null, pipelineVersion };
@@ -263,7 +273,7 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
       text = await downloadGoogleDriveText(file, accessToken);
     } catch (error) {
       failedFiles.push(file.name);
-      console.warn(`Skipping Google Drive file "${file.name}":`, error);
+      console.warn(JSON.stringify({ event: 'drive_file_failed', fileId: file.id, reason: 'download_or_parse_failed' }));
       continue;
     }
     if (!text.trim()) {
@@ -286,8 +296,9 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
 
     const activeChunkIds = new Set<string>();
     for (const [index, chunk] of chunkText(text).entries()) {
+      if (Date.now() >= deadline || newEmbeddings >= maxNewChunks) return paused();
       const chunkId = `${sourceId}-chunk-${index}`;
-      await vectorStore.addChunk({
+      const embedded = await vectorStore.addChunk({
         id: chunkId,
         content: chunk,
         sourceId,
@@ -298,6 +309,7 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
         chunkIndex: index,
         metadata: { driveFileId: file.id, modifiedTime: file.modifiedTime ?? null },
       });
+      if (embedded) newEmbeddings++;
       activeChunkIds.add(chunkId);
       chunkCount += 1;
     }
@@ -311,7 +323,8 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
     ? await vectorStore.removeSourcesExcept('gdrive-', activeSourceIds, ingestionRoot)
     : 0;
   const stats = await vectorStore.getStats();
-  return { discovered: files.length, chunks: chunkCount, sources: stats.sourceCount, removed, failedFiles, skippedFiles };
+  console.info(JSON.stringify({ event: 'drive_sync_batch', complete: true, newEmbeddings, skippedFiles, failedFileCount: failedFiles.length }));
+  return { discovered: files.length, chunks: chunkCount, sources: stats.sourceCount, removed, failedFiles, skippedFiles, newEmbeddings, complete: true };
 }
 
 async function createGoogleAccessToken(clientEmail: string, privateKey: string): Promise<string> {
@@ -351,7 +364,7 @@ async function listGoogleDriveFiles(folderId: string, accessToken: string): Prom
   return files;
 }
 
-export async function listGoogleDriveFilesRecursively(folderId: string, accessToken: string): Promise<GoogleDriveFile[]> {
+export async function listGoogleDriveFilesRecursively(folderId: string, accessToken: string, deadline = Infinity): Promise<GoogleDriveFile[]> {
   const files: GoogleDriveFile[] = [];
   const folders = [folderId];
   const visitedFolders = new Set<string>();
@@ -363,6 +376,7 @@ export async function listGoogleDriveFilesRecursively(folderId: string, accessTo
 
     let pageToken: string | undefined;
     do {
+      if (Date.now() >= deadline) throw new Error('Drive listing exceeded the safe batch time budget; no deletion cleanup was performed. Narrow the configured folder or use a background ingestion worker.');
       const response = await axios.get('https://www.googleapis.com/drive/v3/files', {
         headers: { Authorization: ['Bearer', accessToken].join(' ') },
         params: {

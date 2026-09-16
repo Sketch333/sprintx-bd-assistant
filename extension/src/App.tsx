@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { ApiError, askAssistant, crawlWebsites, createConversation, createUser, deleteConversation, draftMessage, getConversationMessages, getProfile, listConversations, listUsers, removeGeminiKey, renameConversation, setGeminiKey, syncGoogleDrive } from './api';
 import { signInWithGoogle, supabase } from './supabase';
+import { continueDriveSync } from './drive-sync';
 import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftResponse, ProvisionedUser } from './types';
 
 export function App() {
@@ -23,6 +24,8 @@ export function App() {
 function SessionWorkspace({ currentSession }: { currentSession: Session | null }) {
   const session = currentSession;
   const mounted = useRef(true);
+  const driveSyncAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => { driveSyncAbort.current?.abort(); }, []);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [question, setQuestion] = useState('');
   const [result, setResult] = useState<AskResponse | null>(null);
@@ -194,6 +197,7 @@ function SessionWorkspace({ currentSession }: { currentSession: Session | null }
   }
 
   async function handleSignOut() {
+    driveSyncAbort.current?.abort();
     setError('');
     const { error: signOutError } = await supabase.auth.signOut();
     if (signOutError) setError(signOutError.message);
@@ -265,21 +269,35 @@ function SessionWorkspace({ currentSession }: { currentSession: Session | null }
 
   async function handleDriveSync() {
     if (!session?.access_token) return;
+    if (driveSyncAbort.current) return;
+    const controller = new AbortController();
+    driveSyncAbort.current = controller;
     setAdminBusy(true);
     setSyncMessage('');
     setError('');
     try {
-      const response = await syncGoogleDrive(session.access_token);
-      const { discovered, chunks, sources, removed, failedFiles } = response.result;
+      const response = await continueDriveSync(async () => {
+        const { data } = await supabase.auth.getSession();
+        if (!data.session || data.session.user.id !== session.user.id) throw new Error('Sign in again to continue Drive sync. Saved progress is preserved.');
+        return (await syncGoogleDrive(data.session.access_token, controller.signal)).result;
+      }, (batch, batchNumber) => {
+        if (mounted.current) setSyncMessage(`Google Drive sync ${batch.complete ? 'finishing' : 'in progress'}: batch ${batchNumber}, ${batch.newEmbeddings} new embeddings, ${batch.skippedFiles} unchanged files reused.`);
+      }, controller.signal);
+      const { discovered, sources, removed, failedFiles, skippedFiles } = response;
+      if (!mounted.current) return;
       setSyncMessage(
         failedFiles.length > 0
-          ? `Google Drive sync completed with ${failedFiles.length} skipped file(s): ${failedFiles.join(', ')}. Indexed ${chunks} chunks from ${sources} sources.`
-          : `Google Drive sync complete: discovered ${discovered} file(s), indexed ${chunks} chunks from ${sources} sources, removed ${removed} stale source(s).`,
+          ? `Google Drive scan finished with ${failedFiles.length} failed file(s): ${failedFiles.join(', ')}. Deletion cleanup was not performed. Saved progress is preserved.`
+          : `Google Drive sync complete: discovered ${discovered} file(s), ${skippedFiles} unchanged files reused, ${sources} total sources, removed ${removed} stale source(s).`,
       );
     } catch (syncError) {
-      setError(syncError instanceof Error ? syncError.message : 'Google Drive sync failed.');
+      if (mounted.current) {
+        setSyncMessage('Drive sync interrupted. Saved embeddings are preserved; restart sync to resume.');
+        setError(syncError instanceof Error ? syncError.message : 'Google Drive sync failed.');
+      }
     } finally {
-      setAdminBusy(false);
+      driveSyncAbort.current = null;
+      if (mounted.current) setAdminBusy(false);
     }
   }
 
