@@ -42,7 +42,11 @@ ownership-checked conversation context for follow-ups.
 ## Known verification gaps
 
 No production ingestion/deletion was exercised. Fixtures mock Google/Gemini;
-live authenticated end-to-end testing remains necessary. Coverage percentage
-was not measured and the ECC 80% target is not claimed. No lint script exists.
+live authenticated end-to-end testing remains necessary. The measured compiled
+backend coverage (`node --test --experimental-test-coverage dist/test/*.test.js`)
+is 47.77% lines, 52.31% branches, 63.40% functions: below ECC's 80% target.
+The new context utility has 100% line/branch/function coverage. No lint script exists.
 Vercel connector access returned 403, so deployment/log inspection requires an
-authorized connection. `git diff --check` passed.
+authorized connection. `git diff --check` passed. Vercel's GitHub check for
+`b169940` succeeded; live unauthenticated `/api/kb/search` now returns 401
+(previously 200). Root and health returned 200. Full runtime logs remain inaccessible.
