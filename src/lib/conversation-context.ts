@@ -17,6 +17,8 @@ export function conversationPrompt(messages: ContextMessage[]): string {
 }
 
 export function conversationSearchQuery(query: string, messages: ContextMessage[]): string {
+  const refersToPrevious = /\b(that|this|it|those|these|previous|earlier|above|same)\b/i.test(query);
+  if (!refersToPrevious) return query;
   // The most recent turns resolve references such as "that proposal".
   return `${query}\n${boundConversationContext(messages).slice(-2).map((message) => message.content).join('\n')}`;
 }

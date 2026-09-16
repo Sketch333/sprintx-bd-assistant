@@ -73,6 +73,8 @@ Include source references like [Source 1], [Source 2].
 When there is not enough evidence, say so instead of guessing.
 
 Question: ${question}
+Answer this latest question, not an earlier question from the conversation.
+Prior dialogue only resolves references; it is not knowledge-base evidence.
 
 Knowledge base context:
 ${context}

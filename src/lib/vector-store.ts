@@ -62,8 +62,8 @@ export class MemoryVectorStore implements VectorStore {
       .map((chunk) => {
         const embedding = this.embeddings.get(chunk.id) ?? new Array(1536).fill(0);
         const vectorScore = cosineSimilarity(queryEmbedding, embedding);
-        const lexicalScore = lexicalSimilarity(query, chunk.content);
-        const score = Math.max(vectorScore, lexicalScore);
+        const lexicalScore = lexicalCoverage(query, `${chunk.sourceTitle} ${chunk.content}`);
+        const score = Math.max(vectorScore, lexicalScore) + namedTitleScore(query, chunk.sourceTitle);
 
         return {
           id: chunk.id,
@@ -236,13 +236,30 @@ export class PgVectorStore implements VectorStore {
       [`[${embedding.join(',')}]`, candidateLimit],
     );
 
-    return rows
+    // Lexical candidates come from the whole KB, not just the vector shortlist.
+    // This recovers named files even when their embeddings rank below websites.
+    const terms = searchTerms(query);
+    const lexicalRows = terms.length ? (await this.pool.query(
+      `SELECT id, 1 - (embedding <=> $1::vector) AS score, content,
+       source_id AS "sourceId", source_path AS "sourcePath", source_type AS "sourceType",
+       source_title AS "sourceTitle", source_url AS "sourceUrl", chunk_index AS "chunkIndex"
+       FROM kb_chunks
+       WHERE to_tsvector('simple', source_title || ' ' || content) @@ to_tsquery('simple', $3)
+       ORDER BY (to_tsvector('simple', source_title) @@ to_tsquery('simple', $3)) DESC,
+         ts_rank_cd(to_tsvector('simple', source_title || ' ' || content), to_tsquery('simple', $3)) DESC,
+         embedding <=> $1::vector
+       LIMIT $2;`,
+      [`[${embedding.join(',')}]`, candidateLimit, terms.map((term) => `'${term}'`).join(' | ')],
+    )).rows : [];
+    const candidates = [...new Map([...rows, ...lexicalRows].map((row: any) => [row.id, row])).values()];
+
+    return candidates
       .map((row: any) => {
         const vectorScore = Number(row.score);
         const lexicalScore = lexicalCoverage(query, `${row.sourceTitle} ${row.content}`);
         return {
           id: row.id,
-          score: Math.max(vectorScore, lexicalScore),
+          score: Math.max(Number.isFinite(vectorScore) ? vectorScore : 0, lexicalScore) + namedTitleScore(query, row.sourceTitle),
           content: row.content,
           sourceId: row.sourceId,
           sourcePath: row.sourcePath,
@@ -318,11 +335,24 @@ function lexicalSimilarity(left: string, right: string): number {
 }
 
 function lexicalCoverage(query: string, content: string): number {
-  const queryTerms = new Set(normalizeTerms(query).filter((term) => term.length > 2));
+  const queryTerms = new Set(searchTerms(query));
   if (!queryTerms.size) return 0;
   const contentTerms = new Set(normalizeTerms(content));
   const matchedTerms = [...queryTerms].filter((term) => contentTerms.has(term)).length;
   return matchedTerms / queryTerms.size;
+}
+
+const retrievalStopWords = new Set(['what', 'which', 'when', 'where', 'why', 'who', 'how', 'the', 'and', 'for', 'are', 'does', 'with', 'mentioned', 'please', 'about', 'case', 'study', 'studies', 'tech', 'technology', 'stack', 'stacked', 'pdf', 'docx', 'xlsx']);
+
+function searchTerms(query: string): string[] {
+  return [...new Set(normalizeTerms(query).filter((term) => term.length > 2 && !retrievalStopWords.has(term)))].slice(0, 32);
+}
+
+function namedTitleScore(query: string, title: string): number {
+  const queryTerms = new Set(searchTerms(query));
+  const titleTerms = searchTerms(title);
+  // A complete distinctive title match outranks a generic semantic neighbor.
+  return titleTerms.length && titleTerms.every((term) => queryTerms.has(term)) ? 2 : 0;
 }
 
 function normalizeTerms(value: string): string[] {
