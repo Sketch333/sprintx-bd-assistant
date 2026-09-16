@@ -34,3 +34,22 @@ benefit without resyncing; files with extra filename suffixes may not receive
 the complete-title boost. Full-KB lexical retrieval can increase query cost on
 large corpora; consider a matching full-text index as corpus size grows.
 Global coverage remains below ECC's 80% target from the preceding audit.
+
+## PDF filename follow-up
+
+The exact filename `Case Study - Dream.pdf` exposed a missed PostgreSQL behavior:
+`to_tsvector('simple', 'Case Study - Dream.pdf')` produces a `dream.pdf` lexeme,
+which does not match `plainto_tsquery('simple', 'dream')`. The former mock-only
+regression did not execute this parser and therefore missed the failure.
+
+`test/pdf-filename-search.test.ts` now executes the actual lexical SQL through
+PGlite's PostgreSQL engine (substituting only the unavailable pgvector distance).
+It reproduced the failure, then passed after SQL title normalization replaced
+filename punctuation with spaces before tokenization. No re-ingestion required.
+
+Verification: 30 application tests, 3 CommonJS checks, and 4 React tests pass;
+backend and extension builds pass. This still does not verify the real Dream
+PDF is present in production. The separate generic request-failure message
+cannot be diagnosed from its text alone; Vercel runtime access again returned
+403. Live authenticated verification and the failed request's HTTP status/log
+are needed to distinguish timeout, upstream error, or persistence failure.
