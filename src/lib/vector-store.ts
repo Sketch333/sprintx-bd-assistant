@@ -3,9 +3,11 @@ import { randomUUID } from 'crypto';
 
 import { config } from '../config';
 import { KnowledgeChunk, SearchResult, SourceRecord } from '../types';
-import { generateEmbedding } from './embeddings';
+import { embeddingProfile, generateEmbedding } from './embeddings';
 
 export interface VectorStore {
+  getSource(id: string): Promise<SourceRecord | undefined>;
+  refreshSourceChunks(source: SourceRecord): Promise<void>;
   addSource(source: SourceRecord): Promise<void>;
   addChunk(chunk: KnowledgeChunk): Promise<void>;
   removeChunksExcept(sourceId: string, chunkIds: Set<string>): Promise<number>;
@@ -19,18 +21,35 @@ export class MemoryVectorStore implements VectorStore {
   private chunks: KnowledgeChunk[] = [];
   private embeddings = new Map<string, number[]>();
 
+  async getSource(id: string): Promise<SourceRecord | undefined> {
+    const source = this.sources.get(id);
+    return source ? { ...source, metadata: { ...source.metadata } } : undefined;
+  }
+
+  async refreshSourceChunks(source: SourceRecord): Promise<void> {
+    this.chunks = this.chunks.map((chunk) => chunk.sourceId === source.id ? {
+      ...chunk, sourceTitle: source.sourceTitle, sourcePath: source.sourcePath,
+      sourceUrl: source.sourceUrl, sourceType: source.sourceType,
+    } : chunk);
+  }
+
   async addSource(source: SourceRecord): Promise<void> {
     this.sources.set(source.id, source);
   }
 
   async addChunk(chunk: KnowledgeChunk): Promise<void> {
     const existingIndex = this.chunks.findIndex((existing) => existing.id === chunk.id);
+    const existing = this.chunks[existingIndex];
+    const profile = embeddingProfile();
+    const embedding = existing?.content === chunk.content && existing.metadata?.embeddingProfile === profile && this.embeddings.has(chunk.id)
+      ? this.embeddings.get(chunk.id)! : await generateEmbedding(chunk.content);
+    chunk = { ...chunk, metadata: { ...chunk.metadata, embeddingProfile: profile } };
     if (existingIndex >= 0) {
       this.chunks[existingIndex] = chunk;
     } else {
       this.chunks.push(chunk);
     }
-    this.embeddings.set(chunk.id, await generateEmbedding(chunk.content));
+    this.embeddings.set(chunk.id, embedding);
   }
 
   async removeChunksExcept(sourceId: string, chunkIds: Set<string>): Promise<number> {
@@ -98,6 +117,21 @@ export class PgVectorStore implements VectorStore {
     this.pool = new Pool({ connectionString });
   }
 
+  async getSource(id: string): Promise<SourceRecord | undefined> {
+    try {
+      const { rows } = await this.pool.query(`SELECT id, source_type AS "sourceType", source_title AS "sourceTitle", source_path AS "sourcePath", source_url AS "sourceUrl", status, updated_at AS "updatedAt", metadata FROM kb_sources WHERE id = $1`, [id]);
+      return rows[0];
+    } catch (error) {
+      if ((error as { code?: string }).code === '42P01') return undefined;
+      throw error;
+    }
+  }
+
+  async refreshSourceChunks(source: SourceRecord): Promise<void> {
+    await this.pool.query(`UPDATE kb_chunks SET source_title=$2, source_path=$3, source_url=$4, source_type=$5 WHERE source_id=$1`,
+      [source.id, source.sourceTitle, source.sourcePath, source.sourceUrl ?? null, source.sourceType]);
+  }
+
   async addSource(source: SourceRecord): Promise<void> {
     await this.pool.query(
       `
@@ -159,7 +193,11 @@ export class PgVectorStore implements VectorStore {
       `,
     );
 
-    const embedding = await generateEmbedding(chunk.content);
+    const profile = embeddingProfile();
+    // Reuse only vectors whose content and model provenance are known to match.
+    // Untagged legacy rows are deliberately regenerated once.
+    const { rows } = await this.pool.query(`SELECT embedding::text AS embedding FROM kb_chunks WHERE id=$1 AND content=$2 AND metadata->>'embeddingProfile'=$3 AND embedding IS NOT NULL`, [chunk.id, chunk.content, profile]);
+    const embedding = rows[0]?.embedding ?? `[${(await generateEmbedding(chunk.content)).join(',')}]`;
 
     await this.pool.query(
       `
@@ -185,8 +223,8 @@ export class PgVectorStore implements VectorStore {
         chunk.sourceTitle,
         chunk.sourceUrl ?? null,
         chunk.chunkIndex,
-        `[${embedding.join(',')}]`,
-        JSON.stringify(chunk.metadata ?? {}),
+        embedding,
+        JSON.stringify({ ...chunk.metadata, embeddingProfile: profile }),
       ],
     );
   }

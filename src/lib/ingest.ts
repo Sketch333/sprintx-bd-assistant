@@ -8,8 +8,8 @@ const mammoth = require('mammoth');
 const pdfParse = require('pdf-parse');
 const XLSX = require('xlsx');
 
-import { chunkText } from './chunker';
-import { generateEmbedding } from './embeddings';
+import { chunkText, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP } from './chunker';
+import { embeddingProfile, generateEmbedding } from './embeddings';
 import { VectorStore } from './vector-store';
 import { KnowledgeChunk, SourceRecord, SourceType } from '../types';
 
@@ -227,7 +227,7 @@ const googleExportMimeTypes: Record<string, { mimeType: string; sourceType: Sour
   'application/vnd.google-apps.spreadsheet': { mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', sourceType: 'sheet' },
 };
 
-export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options: GoogleDriveSyncOptions): Promise<{ discovered: number; chunks: number; sources: number; removed: number; failedFiles: string[] }> {
+export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options: GoogleDriveSyncOptions): Promise<{ discovered: number; chunks: number; sources: number; removed: number; failedFiles: string[]; skippedFiles: number }> {
   const credentials = JSON.parse(options.serviceAccountJson) as { client_email?: string; private_key?: string };
   if (!credentials.client_email || !credentials.private_key) {
     throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON must contain client_email and private_key');
@@ -238,8 +238,26 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
   let chunkCount = 0;
   const activeSourceIds = new Set<string>();
   const failedFiles: string[] = [];
+  let skippedFiles = 0;
+  const pipelineVersion = `${embeddingProfile()}:drive-text-v1:${DEFAULT_CHUNK_SIZE}:${DEFAULT_CHUNK_OVERLAP}`;
+  const ingestionRoot = `google-drive:${options.folderId}`;
 
   for (const file of files) {
+    const sourceId = `gdrive-${file.id}`;
+    const previous = await vectorStore.getSource(sourceId);
+    const metadata = { source: 'google-drive', driveFileId: file.id, mimeType: file.mimeType, ingestionRoot, modifiedTime: file.modifiedTime ?? null, pipelineVersion };
+    if (file.modifiedTime && previous?.metadata?.syncComplete === true
+      && previous.metadata.modifiedTime === file.modifiedTime
+      && previous.metadata.pipelineVersion === pipelineVersion
+      && previous.metadata.mimeType === file.mimeType) {
+      const renamed = { ...previous, sourceTitle: file.name, sourcePath: `Google Drive/${file.name}`, sourceUrl: file.webViewLink,
+        metadata: { ...previous.metadata, ...metadata } };
+      await vectorStore.refreshSourceChunks(renamed);
+      await vectorStore.addSource(renamed);
+      activeSourceIds.add(sourceId);
+      skippedFiles++;
+      continue;
+    }
     let text: string;
     try {
       text = await downloadGoogleDriveText(file, accessToken);
@@ -248,9 +266,11 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
       console.warn(`Skipping Google Drive file "${file.name}":`, error);
       continue;
     }
-    if (!text.trim()) continue;
+    if (!text.trim()) {
+      failedFiles.push(file.name);
+      continue;
+    }
 
-    const sourceId = `gdrive-${file.id}`;
     activeSourceIds.add(sourceId);
     const source: SourceRecord = {
       id: sourceId,
@@ -260,7 +280,7 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
       sourceUrl: file.webViewLink,
       status: 'active',
       updatedAt: file.modifiedTime ?? new Date().toISOString(),
-      metadata: { source: 'google-drive', driveFileId: file.id, mimeType: file.mimeType },
+      metadata: { ...metadata, syncComplete: false },
     };
     await vectorStore.addSource(source);
 
@@ -282,13 +302,16 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
       chunkCount += 1;
     }
     await vectorStore.removeChunksExcept(sourceId, activeChunkIds);
+    // Mark a file complete only after every chunk is saved and reconciled.
+    // Interrupted runs reuse saved compatible chunks on the next explicit sync.
+    await vectorStore.addSource({ ...source, metadata: { ...metadata, syncComplete: true } });
   }
 
   const removed = failedFiles.length === 0
-    ? await vectorStore.removeSourcesExcept('gdrive-', activeSourceIds)
+    ? await vectorStore.removeSourcesExcept('gdrive-', activeSourceIds, ingestionRoot)
     : 0;
   const stats = await vectorStore.getStats();
-  return { discovered: files.length, chunks: chunkCount, sources: stats.sourceCount, removed, failedFiles };
+  return { discovered: files.length, chunks: chunkCount, sources: stats.sourceCount, removed, failedFiles, skippedFiles };
 }
 
 async function createGoogleAccessToken(clientEmail: string, privateKey: string): Promise<string> {

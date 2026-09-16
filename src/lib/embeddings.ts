@@ -1,5 +1,10 @@
 import { generateGeminiEmbedding } from './gemini-models';
 
+export function embeddingProfile(): string {
+  return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+    ? 'gemini-embedding-001:1536:v1' : 'local-hash:1536:v1';
+}
+
 export async function generateEmbedding(text: string): Promise<number[]> {
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '';
 

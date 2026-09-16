@@ -68,7 +68,7 @@ export function createUser(accessToken: string, input: { email: string; name: st
   return postJson('/api/users', input, accessToken);
 }
 
-export function syncGoogleDrive(accessToken: string): Promise<{ ok: true; result: { discovered: number; chunks: number; sources: number; removed: number; failedFiles: string[] } }> {
+export function syncGoogleDrive(accessToken: string): Promise<{ ok: true; result: { discovered: number; chunks: number; sources: number; removed: number; failedFiles: string[]; skippedFiles: number } }> {
   return postJson('/api/kb/drive-sync', {}, accessToken);
 }
 
