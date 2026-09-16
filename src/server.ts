@@ -4,12 +4,13 @@ import { z } from 'zod';
 
 import { config } from './config';
 import { authenticateRequest, AuthenticationError, isAdmin } from './lib/auth';
-import { answerQuestion } from './lib/ask-service';
+import { answerFromKnowledgeTools } from './lib/ask-service';
 import { createDraft } from './lib/draft-service';
 import { createUser, getUserApiKey, getUserById, listUsers, removeUserApiKey, setUserApiKey } from './lib/user-store';
 import { createVectorStore } from './lib/vector-store';
 import { appendConversationMessages, ConversationNotFoundError, createConversation, deleteConversation, getConversationContext, getConversationMessages, listConversations, updateConversation } from './lib/conversation-store';
 import { conversationSearchQuery } from './lib/conversation-context';
+import { inventoryRequest } from './lib/knowledge-tools';
 
 const app = express();
 const vectorStorePromise = createVectorStore();
@@ -334,7 +335,6 @@ app.post('/api/ask', async (req: Request, res: Response) => {
     const store = await vectorStorePromise;
     if (conversationId && !authenticatedUser) return res.status(401).json({ ok: false, error: 'Authentication required for conversation history' });
     const history = conversationId && authenticatedUser ? await getConversationContext(authenticatedUser.id, conversationId) : [];
-    const results = await store.search(conversationSearchQuery(question, history), limit);
 
     let apiKey: string | undefined;
     if (userId) {
@@ -343,10 +343,12 @@ app.post('/api/ask', async (req: Request, res: Response) => {
         return res.status(404).json({ ok: false, error: 'User not found' });
       }
 
-      apiKey = await getUserApiKey(userId);
+      // Inventory answers need authentication, but never need to decrypt a
+      // personal generation key or call Gemini.
+      if (!inventoryRequest(question, history)) apiKey = await getUserApiKey(userId);
     }
 
-    const answer = await answerQuestion(question, results, apiKey, history);
+    const answer = await answerFromKnowledgeTools(question, store, apiKey, history, limit);
 
     if (conversationId && authenticatedUser) {
       await appendConversationMessages(authenticatedUser.id, conversationId, [

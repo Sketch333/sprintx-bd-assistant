@@ -54,6 +54,18 @@ This project initializes the SprintX BD Assistant Milestone 1 foundation: a loca
 - `GET/POST /api/conversations`
 - `GET /api/conversations/:id/messages`
 
+### Grounded Ask document tools
+
+`POST /api/ask` routes document inventory requests to the database rather than asking Gemini to count retrieved text chunks. No request/response changes, schema migration, or re-embedding are needed; the existing extension can use these tools immediately after backend deployment.
+
+- “How many documents are in Google Drive?” counts active indexed Drive documents, including spreadsheets, once per source ID—not once per chunk. Websites, archived sources, unfinished syncs, and records without indexed text/vector chunks are excluded. This is the **indexed knowledge base**, not a live Drive directory or a count of a user's uploads.
+- “How many case studies are in Google Drive?” uses filenames containing “case study” or “case studies”. This limitation is included in the answer. A renamed file such as `Dream.pdf` is still available for retrieval but is not classified as a case study solely because it is a PDF.
+- “List documents in Google Drive” returns 20 documents per page with source citations. Ask “List them”, “Next page”, or “List documents in Google Drive, page 2” in the same conversation to continue. “List case studies” and “List spreadsheets” are also supported. Without Drive scope, inventory includes local indexed documents too, but still excludes webpages.
+- Content-, industry-, project-, date-, team-, folder-, and file-format-filtered inventory requests are explicitly refused rather than silently returning an unfiltered total. These tools do not yet perform aggregate analysis across document content.
+- For a named question such as “What tech stack was used in Dream?”, Ask first matches indexed document titles (ignoring case-study wrappers, file extensions and numeric copy suffixes), then retrieves chunks **within** those documents. Generic filenames such as `Services.pdf` do not narrow broad capability questions unless explicitly referenced as files. Multiple distinctive named documents each receive a retrieval allocation.
+
+Inventory answers do not call Gemini or decrypt personal generation keys. Normal content answers still use Gemini with retrieved evidence; external web search and general-knowledge answer modes are not enabled. Missing retrieved evidence must not be treated as proof that a document is absent, and the assistant is instructed not to promise staff messaging or access-provisioning actions it cannot perform.
+
 ## Supabase and Vercel deployment
 
 1. Create a Supabase project and run [`supabase/schema.sql`](./supabase/schema.sql) in the SQL editor. Row Level Security is enabled on users, knowledge-base, and conversation tables; the backend uses the server-only service-role key for database access, while browser clients cannot query these tables directly.

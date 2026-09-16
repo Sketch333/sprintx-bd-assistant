@@ -4,15 +4,18 @@ import { randomUUID } from 'crypto';
 import { config } from '../config';
 import { KnowledgeChunk, SearchResult, SourceRecord } from '../types';
 import { embeddingProfile, generateEmbedding } from './embeddings';
+import { DocumentFilter, DocumentPage, documentPageBounds, isIndexedDocument, isDriveDocument, isCaseStudyTitle, matchesDocumentTitle, titleWords, titleNoise } from './document-inventory';
 
 export interface VectorStore {
+  listDocuments(filter?: DocumentFilter): Promise<DocumentPage>;
+  findDocuments(query: string): Promise<SourceRecord[]>;
   getSource(id: string): Promise<SourceRecord | undefined>;
   refreshSourceChunks(source: SourceRecord): Promise<void>;
   addSource(source: SourceRecord): Promise<void>;
   addChunk(chunk: KnowledgeChunk): Promise<boolean>;
   removeChunksExcept(sourceId: string, chunkIds: Set<string>): Promise<number>;
   removeSourcesExcept(prefix: string, sourceIds: Set<string>, ingestionRoot?: string): Promise<number>;
-  search(query: string, limit?: number): Promise<SearchResult[]>;
+  search(query: string, limit?: number, sourceIds?: string[]): Promise<SearchResult[]>;
   getStats(): Promise<{ chunkCount: number; sourceCount: number }>;
 }
 
@@ -20,6 +23,25 @@ export class MemoryVectorStore implements VectorStore {
   private sources = new Map<string, SourceRecord>();
   private chunks: KnowledgeChunk[] = [];
   private embeddings = new Map<string, number[]>();
+
+  private indexedDocuments(): SourceRecord[] {
+    const indexedIds = new Set(this.chunks.filter((chunk) => chunk.content.trim() && this.embeddings.has(chunk.id)).map((chunk) => chunk.sourceId));
+    return [...this.sources.values()].filter((source) => isIndexedDocument(source) && indexedIds.has(source.id));
+  }
+
+  async listDocuments(filter: DocumentFilter = {}): Promise<DocumentPage> {
+    const { offset, limit } = documentPageBounds(filter);
+    const documents = this.indexedDocuments().filter((source) =>
+      (filter.scope !== 'drive' || isDriveDocument(source)) && (!filter.sourceType || source.sourceType === filter.sourceType)
+      && (!filter.caseStudies || isCaseStudyTitle(source.sourceTitle)))
+      .sort((a, b) => a.sourceTitle.toLowerCase().localeCompare(b.sourceTitle.toLowerCase()) || a.id.localeCompare(b.id));
+    return { documents: documents.slice(offset, offset + limit), total: documents.length, hasMore: offset + limit < documents.length };
+  }
+
+  async findDocuments(query: string): Promise<SourceRecord[]> {
+    return this.indexedDocuments().filter((source) => matchesDocumentTitle(query, source.sourceTitle))
+      .sort((a, b) => a.id.localeCompare(b.id)).slice(0, 21);
+  }
 
   async getSource(id: string): Promise<SourceRecord | undefined> {
     const source = this.sources.get(id);
@@ -76,10 +98,12 @@ export class MemoryVectorStore implements VectorStore {
     return staleIds.length;
   }
 
-  async search(query: string, limit = 5): Promise<SearchResult[]> {
+  async search(query: string, limit = 5, sourceIds?: string[]): Promise<SearchResult[]> {
+    if (sourceIds?.length === 0) return [];
     const queryEmbedding = await generateEmbedding(query);
 
     const results = this.chunks
+      .filter((chunk) => !sourceIds || sourceIds.includes(chunk.sourceId))
       .map((chunk) => {
         const embedding = this.embeddings.get(chunk.id) ?? new Array(1536).fill(0);
         const vectorScore = cosineSimilarity(queryEmbedding, embedding);
@@ -117,6 +141,40 @@ export class PgVectorStore implements VectorStore {
 
   constructor(connectionString: string) {
     this.pool = new Pool({ connectionString, connectionTimeoutMillis: 10000, query_timeout: 15000 });
+  }
+
+  async listDocuments(filter: DocumentFilter = {}): Promise<DocumentPage> {
+    const { offset, limit } = documentPageBounds(filter);
+    // One statement gives the total and page from the same database snapshot,
+    // including an accurate total for pages beyond the last document.
+    const { rows } = await this.pool.query(`WITH matched AS (
+      SELECT s.id, s.source_type AS "sourceType", s.source_title AS "sourceTitle",
+        s.source_path AS "sourcePath", s.source_url AS "sourceUrl", s.status,
+        s.updated_at AS "updatedAt", s.metadata FROM kb_sources s
+      WHERE ${indexedDocumentSql}
+        AND (NOT $1::boolean OR s.id LIKE 'gdrive-%' OR s.metadata->>'source'='google-drive')
+        AND (NOT $2::boolean OR regexp_replace(lower(s.source_title), '[^a-z0-9]+', ' ', 'g') ~ '(^| )case +stud(y|ies)( |$)')
+        AND ($5::text IS NULL OR s.source_type=$5)
+    ), page AS (SELECT * FROM matched ORDER BY lower("sourceTitle"), id OFFSET $3 LIMIT $4)
+    SELECT (SELECT count(*) FROM matched)::int AS total,
+      COALESCE((SELECT jsonb_agg(page) FROM page), '[]'::jsonb) AS documents`,
+    [filter.scope === 'drive', Boolean(filter.caseStudies), offset, limit, filter.sourceType ?? null]);
+    const total = Number(rows[0].total);
+    return { documents: rows[0].documents, total, hasMore: offset + limit < total };
+  }
+
+  async findDocuments(query: string): Promise<SourceRecord[]> {
+    const words = titleWords(query);
+    if (!words.length) return [];
+    const { rows } = await this.pool.query(`SELECT s.id, s.source_type AS "sourceType", s.source_title AS "sourceTitle",
+      s.source_path AS "sourcePath", s.source_url AS "sourceUrl", s.status,
+      s.updated_at AS "updatedAt", s.metadata FROM kb_sources s
+      CROSS JOIN LATERAL (SELECT array_agg(word) AS words FROM unnest(regexp_split_to_array(
+        regexp_replace(lower(s.source_title), '[^a-z0-9]+', ' ', 'g'), ' +')) word
+        WHERE word <> '' AND word !~ '^[0-9]+$' AND NOT (word=ANY($2::text[]))) title
+      WHERE ${indexedDocumentSql} AND cardinality(title.words)>0 AND title.words <@ $1::text[]
+      ORDER BY s.id LIMIT 21`, [words, titleNoise]);
+    return rows;
   }
 
   async getSource(id: string): Promise<SourceRecord | undefined> {
@@ -254,7 +312,8 @@ export class PgVectorStore implements VectorStore {
     return rows.length;
   }
 
-  async search(query: string, limit = 5): Promise<SearchResult[]> {
+  async search(query: string, limit = 5, sourceIds?: string[]): Promise<SearchResult[]> {
+    if (sourceIds?.length === 0) return [];
     const embedding = await generateEmbedding(query);
     const candidateLimit = Math.max(limit * 10, 50);
 
@@ -271,10 +330,11 @@ export class PgVectorStore implements VectorStore {
           source_url AS "sourceUrl",
           chunk_index AS "chunkIndex"
         FROM kb_chunks
+        ${sourceIds ? 'WHERE source_id = ANY($3::text[])' : ''}
         ORDER BY embedding <=> $1::vector
         LIMIT $2;
       `,
-      [`[${embedding.join(',')}]`, candidateLimit],
+      [`[${embedding.join(',')}]`, candidateLimit, ...(sourceIds ? [sourceIds] : [])],
     );
 
     // Lexical candidates come from the whole KB, not just the vector shortlist.
@@ -288,11 +348,12 @@ export class PgVectorStore implements VectorStore {
        source_title AS "sourceTitle", source_url AS "sourceUrl", chunk_index AS "chunkIndex"
        FROM kb_chunks
        WHERE to_tsvector('simple', ${searchableText}) @@ to_tsquery('simple', $3)
+       ${sourceIds ? 'AND source_id = ANY($4::text[])' : ''}
        ORDER BY (to_tsvector('simple', ${normalizedTitle}) @@ to_tsquery('simple', $3)) DESC,
          ts_rank_cd(to_tsvector('simple', ${searchableText}), to_tsquery('simple', $3)) DESC,
          embedding <=> $1::vector
        LIMIT $2;`,
-      [`[${embedding.join(',')}]`, candidateLimit, terms.map((term) => `'${term}'`).join(' | ')],
+      [`[${embedding.join(',')}]`, candidateLimit, terms.map((term) => `'${term}'`).join(' | '), ...(sourceIds ? [sourceIds] : [])],
     )).rows : [];
     const candidates = [...new Map([...rows, ...lexicalRows].map((row: any) => [row.id, row])).values()];
 
@@ -384,6 +445,10 @@ function lexicalCoverage(query: string, content: string): number {
   const matchedTerms = [...queryTerms].filter((term) => contentTerms.has(term)).length;
   return matchedTerms / queryTerms.size;
 }
+
+const indexedDocumentSql = `s.status='active' AND s.source_type IN ('document', 'sheet')
+  AND COALESCE(s.metadata->>'syncComplete', 'true') <> 'false'
+  AND EXISTS (SELECT 1 FROM kb_chunks c WHERE c.source_id=s.id AND btrim(c.content)<>'' AND c.embedding IS NOT NULL)`;
 
 const retrievalStopWords = new Set(['what', 'which', 'when', 'where', 'why', 'who', 'how', 'the', 'and', 'for', 'are', 'does', 'with', 'mentioned', 'please', 'about', 'case', 'study', 'studies', 'tech', 'technology', 'stack', 'stacked', 'pdf', 'docx', 'xlsx']);
 
