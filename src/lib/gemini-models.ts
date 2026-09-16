@@ -22,6 +22,16 @@ export const LIVE_MODELS = [
 
 export const EMBEDDING_DIMENSIONS = 1536;
 
+export class EmbeddingProviderError extends Error {
+  constructor(public readonly providerStatus?: number) {
+    const reason = providerStatus === 429 ? 'quota or rate limit exceeded; check Google AI Studio quota'
+      : providerStatus === 401 || providerStatus === 403 ? 'server API key rejected; check key permissions and restrictions'
+      : providerStatus === 400 || providerStatus === 404 ? 'invalid embedding request or model configuration'
+      : 'provider unavailable or request timed out; retry sync';
+    super(`Gemini embedding failed${providerStatus ? ` (HTTP ${providerStatus})` : ''}: ${reason}.`);
+  }
+}
+
 export async function generateGeminiText(prompt: string, systemPrompt?: string, apiKey?: string): Promise<string> {
   const key = apiKey ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '';
   if (!key) {
@@ -61,26 +71,31 @@ export async function generateGeminiEmbedding(text: string, apiKey?: string): Pr
 
   const genAI = new GoogleGenerativeAI(key);
 
-  const errors: unknown[] = [];
-  for (const modelName of EMBEDDING_MODELS) {
+  const modelName = EMBEDDING_MODELS[0];
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.embedContent({
         content: { role: 'user', parts: [{ text }] },
         outputDimensionality: EMBEDDING_DIMENSIONS,
-      } as any);
+      } as any, { timeout: 15000 });
       const values = result.embedding?.values ?? result.embeddings?.[0]?.values ?? [];
       if (Array.isArray(values) && values.length > 0) {
         return coerceEmbeddingDimensions(values, EMBEDDING_DIMENSIONS);
       }
+      throw new EmbeddingProviderError();
     } catch (error) {
-      errors.push(error);
-      console.warn(`Gemini embedding model failed: ${modelName}`);
+      const candidate = (error as { status?: unknown } | null)?.status;
+      const status = typeof candidate === 'number' && Number.isInteger(candidate) && candidate >= 400 && candidate <= 599 ? candidate : undefined;
+      const retryable = status === 429 || (status !== undefined && status >= 500)
+        || (status === undefined && !(error instanceof EmbeddingProviderError));
+      console.warn(JSON.stringify({ event: 'embedding_failure', model: modelName, attempt, providerStatus: status ?? null, retrying: retryable && attempt < 3 }));
+      if (!retryable || attempt === 3) throw new EmbeddingProviderError(status);
+      await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** (attempt - 1)));
     }
   }
 
-  const lastError = errors[errors.length - 1];
-  throw lastError instanceof Error ? lastError : new Error('Gemini embedding failed for all configured models.');
+  throw new EmbeddingProviderError();
 }
 
 export function coerceEmbeddingDimensions(values: number[], dimensions: number): number[] {

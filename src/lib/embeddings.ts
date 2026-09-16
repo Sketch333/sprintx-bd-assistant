@@ -4,11 +4,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '';
 
   if (apiKey) {
-    try {
-      return await generateGeminiEmbedding(text, apiKey);
-    } catch {
-      throw new Error('Gemini embedding failed; retry without changing the vector space.');
-    }
+    return generateGeminiEmbedding(text, apiKey);
   }
 
   if (process.env.VERCEL || process.env.DATABASE_URL || process.env.NODE_ENV === 'production') {

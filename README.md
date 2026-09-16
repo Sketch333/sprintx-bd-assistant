@@ -1,5 +1,11 @@
 # SprintX BD Assistant MVP
 
+## API hosting versus the extension
+
+Vercel hosts the Express API, not the Chrome extension UI. Every URL is routed to `api/index.ts`; `/` deliberately returns service-status JSON. To use the UI, run `npm run extension:build`, open `chrome://extensions`, enable Developer mode, and load the `extension/dist` directory using **Load unpacked**. Open the extension's side panel. Hosting a normal browser UI would require a separate web build, routing, and browser-compatible authentication.
+
+Embedding requests use `gemini-embedding-001` with 1536 dimensions, a 15-second SDK request timeout, and at most three attempts with exponential backoff for transient failures. They never switch to an incompatible vector space. Safe errors and structured `embedding_failure` logs include the provider HTTP status, without keys or raw provider payloads. HTTP 429 requires checking the server key's Google AI Studio quota; retries cannot overcome an exhausted quota. HTTP 401/403 requires checking server-key permissions and restrictions. A failed sync is not a completed sync: resolve the reported cause and rerun before relying on newly imported documents.
+
 This project initializes the SprintX BD Assistant Milestone 1 foundation: a local ingestion pipeline and vector-search layer for Drive-based knowledge content.
 
 ## Included in this MVP foundation
