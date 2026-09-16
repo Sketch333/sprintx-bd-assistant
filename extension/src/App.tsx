@@ -1,27 +1,57 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { ApiError, askAssistant, crawlWebsites, createConversation, createUser, deleteConversation, draftMessage, getConversationMessages, getProfile, listConversations, listUsers, removeGeminiKey, renameConversation, setGeminiKey, syncGoogleDrive } from './api';
-import { signInWithGoogle, supabase } from './supabase';
+import { authorizePresentation, isFramedPresentation, requestTrustedWindow } from './appearance';
 import { continueDriveSync } from './drive-sync';
 import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftResponse, ProvisionedUser } from './types';
 
 export function App() {
+  const [auth, setAuth] = useState<typeof import('./supabase') | null>(null);
+  const [denied, setDenied] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+  useEffect(() => {
+    let active = true;
+    authorizePresentation().then(async (authorized) => {
+      if (!active) return;
+      if (!authorized) { setDenied(true); return; }
+      // Never initialize storage/session refresh from an unauthorized external embed.
+      try { const module = await import('./supabase'); if (active) setAuth(module); }
+      catch { if (active) setUnavailable(true); }
+    });
+    return () => { active = false; };
+  }, []);
+  if (denied) return <main className="shell centered">Open SprintX from the extension toolbar.</main>;
+  if (unavailable) return <TrustedWindowFallback />;
+  if (!auth) return <main className="shell centered">Opening SprintX...</main>;
+  return <AccountApp auth={auth} />;
+}
+
+function TrustedWindowFallback() {
+  const [error, setError] = useState('');
+  return <main className="shell centered"><p>This frame cannot access SprintX sign-in or storage.</p><button type="button" className="primary-button" onClick={() => requestTrustedWindow().catch(() => setError('Use the extension toolbar menu to open the SprintX sidebar.'))}>Open trusted SprintX window</button>{error && <p role="alert">{error}</p>}</main>;
+}
+
+function AccountApp({ auth }: { auth: typeof import('./supabase') }) {
+  const { supabase } = auth;
+  const [unavailable, setUnavailable] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let active = true;
     let authChanged = false;
-    supabase.auth.getSession().then(({ data }) => { if (active && !authChanged) { setSession(data.session); setReady(true); } });
+    supabase.auth.getSession().then(({ data, error }) => { if (error) throw error; if (active && !authChanged) { setSession(data.session); setReady(true); } }).catch(() => { if (active) setUnavailable(true); });
     const { data } = supabase.auth.onAuthStateChange((_event, next) => { authChanged = true; if (active) { setSession(next); setReady(true); } });
     return () => { active = false; data.subscription.unsubscribe(); };
   }, []);
+  if (unavailable) return <TrustedWindowFallback />;
   if (!ready) return <main className="shell centered">Loading SprintX Assistant...</main>;
   // Remount every account-scoped state on sign-out or identity change. Old async
   // callbacks can only update the discarded workspace, never the next account.
-  return <SessionWorkspace key={session?.user.id ?? 'signed-out'} currentSession={session} />;
+  return <SessionWorkspace key={session?.user.id ?? 'signed-out'} currentSession={session} auth={auth} />;
 }
 
-function SessionWorkspace({ currentSession }: { currentSession: Session | null }) {
+function SessionWorkspace({ currentSession, auth }: { currentSession: Session | null; auth: typeof import('./supabase') }) {
+  const { supabase, signInWithGoogle } = auth;
   const session = currentSession;
   const mounted = useRef(true);
   const driveSyncAbort = useRef<AbortController | null>(null);
@@ -188,7 +218,10 @@ function SessionWorkspace({ currentSession }: { currentSession: Session | null }
     setError('');
     setAuthenticating(true);
     try {
-      await signInWithGoogle();
+      // Framed sign-in always moves to an extension-owned window, even when identity
+      // APIs happen to exist in the frame. A page never hosts the OAuth action.
+      if (isFramedPresentation()) await requestTrustedWindow();
+      else await signInWithGoogle();
     } catch (signInError) {
       setError(signInError instanceof Error ? signInError.message : 'Google sign-in failed.');
     } finally {
