@@ -267,7 +267,12 @@ export function App() {
     setError('');
     try {
       const response = await syncGoogleDrive(session.access_token);
-      setSyncMessage(`Google Drive sync complete: ${JSON.stringify(response.result)}`);
+      const { discovered, chunks, sources, removed, failedFiles } = response.result;
+      setSyncMessage(
+        failedFiles.length > 0
+          ? `Google Drive sync completed with ${failedFiles.length} skipped file(s): ${failedFiles.join(', ')}. Indexed ${chunks} chunks from ${sources} sources.`
+          : `Google Drive sync complete: discovered ${discovered} file(s), indexed ${chunks} chunks from ${sources} sources, removed ${removed} stale source(s).`,
+      );
     } catch (syncError) {
       setError(syncError instanceof Error ? syncError.message : 'Google Drive sync failed.');
     } finally {

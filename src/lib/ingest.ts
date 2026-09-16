@@ -222,7 +222,7 @@ const googleExportMimeTypes: Record<string, { mimeType: string; sourceType: Sour
   'application/vnd.google-apps.spreadsheet': { mimeType: 'text/csv', sourceType: 'sheet' },
 };
 
-export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options: GoogleDriveSyncOptions): Promise<{ discovered: number; chunks: number; sources: number; removed: number }> {
+export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options: GoogleDriveSyncOptions): Promise<{ discovered: number; chunks: number; sources: number; removed: number; failedFiles: string[] }> {
   const credentials = JSON.parse(options.serviceAccountJson) as { client_email?: string; private_key?: string };
   if (!credentials.client_email || !credentials.private_key) {
     throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON must contain client_email and private_key');
@@ -232,9 +232,17 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
   const files = await listGoogleDriveFilesRecursively(options.folderId, accessToken);
   let chunkCount = 0;
   const activeSourceIds = new Set<string>();
+  const failedFiles: string[] = [];
 
   for (const file of files) {
-    const text = await downloadGoogleDriveText(file, accessToken);
+    let text: string;
+    try {
+      text = await downloadGoogleDriveText(file, accessToken);
+    } catch (error) {
+      failedFiles.push(file.name);
+      console.warn(`Skipping Google Drive file "${file.name}":`, error);
+      continue;
+    }
     if (!text.trim()) continue;
 
     const sourceId = `gdrive-${file.id}`;
@@ -271,9 +279,11 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
     await vectorStore.removeChunksExcept(sourceId, activeChunkIds);
   }
 
-  const removed = await vectorStore.removeSourcesExcept('gdrive-', activeSourceIds);
+  const removed = failedFiles.length === 0
+    ? await vectorStore.removeSourcesExcept('gdrive-', activeSourceIds)
+    : 0;
   const stats = await vectorStore.getStats();
-  return { discovered: files.length, chunks: chunkCount, sources: stats.sourceCount, removed };
+  return { discovered: files.length, chunks: chunkCount, sources: stats.sourceCount, removed, failedFiles };
 }
 
 async function createGoogleAccessToken(clientEmail: string, privateKey: string): Promise<string> {
