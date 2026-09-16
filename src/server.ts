@@ -8,7 +8,8 @@ import { answerQuestion } from './lib/ask-service';
 import { createDraft } from './lib/draft-service';
 import { createUser, getUserApiKey, getUserById, listUsers, removeUserApiKey, setUserApiKey } from './lib/user-store';
 import { createVectorStore } from './lib/vector-store';
-import { appendConversationMessages, createConversation, deleteConversation, getConversationMessages, listConversations, updateConversation } from './lib/conversation-store';
+import { appendConversationMessages, ConversationNotFoundError, createConversation, deleteConversation, getConversationContext, getConversationMessages, listConversations, updateConversation } from './lib/conversation-store';
+import { conversationSearchQuery } from './lib/conversation-context';
 
 const app = express();
 const vectorStorePromise = createVectorStore();
@@ -122,7 +123,7 @@ const apiKeySchema = z.object({
 });
 
 function sendError(res: Response, error: unknown, fallbackMessage: string): Response {
-  const status = error instanceof AuthenticationError ? error.statusCode : 500;
+  const status = error instanceof AuthenticationError ? error.statusCode : error instanceof ConversationNotFoundError ? 404 : 500;
   return res.status(status).json({ ok: false, error: error instanceof Error ? error.message : fallbackMessage });
 }
 
@@ -331,7 +332,9 @@ app.post('/api/ask', async (req: Request, res: Response) => {
       return res.status(403).json({ ok: false, error: 'Ask requests must use the authenticated user' });
     }
     const store = await vectorStorePromise;
-    const results = await store.search(question, limit);
+    if (conversationId && !authenticatedUser) return res.status(401).json({ ok: false, error: 'Authentication required for conversation history' });
+    const history = conversationId && authenticatedUser ? await getConversationContext(authenticatedUser.id, conversationId) : [];
+    const results = await store.search(conversationSearchQuery(question, history), limit);
 
     let apiKey: string | undefined;
     if (userId) {
@@ -343,7 +346,7 @@ app.post('/api/ask', async (req: Request, res: Response) => {
       apiKey = await getUserApiKey(userId);
     }
 
-    const answer = await answerQuestion(question, results, apiKey);
+    const answer = await answerQuestion(question, results, apiKey, history);
 
     if (conversationId && authenticatedUser) {
       await appendConversationMessages(authenticatedUser.id, conversationId, [
@@ -370,9 +373,11 @@ app.post('/api/draft', async (req: Request, res: Response) => {
     }
 
     const store = await vectorStorePromise;
-    const results = await store.search(`${parse.data.audience} ${parse.data.objective} ${parse.data.context ?? ''}`, 5);
+    if (parse.data.conversationId && !authenticatedUser) return res.status(401).json({ ok: false, error: 'Authentication required for conversation history' });
+    const history = parse.data.conversationId && authenticatedUser ? await getConversationContext(authenticatedUser.id, parse.data.conversationId) : [];
+    const results = await store.search(conversationSearchQuery(`${parse.data.audience} ${parse.data.objective} ${parse.data.context ?? ''}`, history), 5);
     const apiKey = authenticatedUser ? await getUserApiKey(authenticatedUser.id) : undefined;
-    const result = await createDraft(parse.data, results, apiKey);
+    const result = await createDraft(parse.data, results, apiKey, history);
     if (parse.data.conversationId && authenticatedUser) {
       await appendConversationMessages(authenticatedUser.id, parse.data.conversationId, [
         { role: 'user', content: `Draft request: ${parse.data.audience} — ${parse.data.objective}` },

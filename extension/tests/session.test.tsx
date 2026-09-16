@@ -8,7 +8,7 @@ vi.mock('../src/supabase', () => ({ signInWithGoogle: vi.fn(), supabase: { auth:
   onAuthStateChange: (callback: any) => { fixtures.listeners.push(callback); return { data: { subscription: { unsubscribe: () => { fixtures.listeners = fixtures.listeners.filter((item) => item !== callback); } } } }; },
   signOut: async () => ({ error: null }),
 } } }));
-vi.mock('../src/api', () => ({ ApiError: class extends Error {}, listConversations: fixtures.list, getConversationMessages: fixtures.messages, askAssistant: fixtures.ask,
+vi.mock('../src/api', () => ({ ApiError: class extends Error { constructor(message: string, public status: number) { super(message); } }, listConversations: fixtures.list, getConversationMessages: fixtures.messages, askAssistant: fixtures.ask,
   getProfile: async () => ({ geminiKeyConfigured: false, user: { role: 'intern' } }) }));
 import { App } from '../src/App';
 const conversation = (id: string) => ({ id, title: id, updatedAt: new Date().toISOString(), createdAt: new Date().toISOString(), userId: 'alice' });
@@ -42,4 +42,9 @@ test('thread switching is blocked while an answer is in flight', async () => {
   fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Services?' } });
   fireEvent.click(screen.getByText('Ask SprintX')); await waitFor(() => expect(fixtures.ask).toHaveBeenCalled());
   expect((screen.getByText('New') as HTMLButtonElement).disabled).toBe(true);
+});
+
+test('startup restores the latest transcript', async () => {
+  fixtures.messages.mockResolvedValue({ messages: [{ id: 'saved', conversationId: 'Latest', role: 'assistant', content: 'Saved fixture transcript', citations: [], createdAt: new Date().toISOString() }] });
+  render(<App />); expect(await screen.findByText('Saved fixture transcript')).toBeTruthy();
 });

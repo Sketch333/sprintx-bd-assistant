@@ -2,6 +2,7 @@ import { config } from '../config';
 import { SearchResult } from '../types';
 import { SYSTEM_PROMPT } from '../system-prompt';
 import { generateGeminiText } from './gemini-models';
+import { ContextMessage, conversationPrompt } from './conversation-context';
 
 export type AskAnswer = {
   answer: string;
@@ -9,7 +10,7 @@ export type AskAnswer = {
   usedGemini: boolean;
 };
 
-export async function answerQuestion(question: string, results: SearchResult[], userApiKeyOverride?: string): Promise<AskAnswer> {
+export async function answerQuestion(question: string, results: SearchResult[], userApiKeyOverride?: string, history: ContextMessage[] = []): Promise<AskAnswer> {
   const relevantResults = results.filter((result) => result.score >= 0.18 || hasMeaningfulOverlap(question, result.content));
 
   if (!relevantResults.length) {
@@ -29,7 +30,7 @@ export async function answerQuestion(question: string, results: SearchResult[], 
     snippet: result.content.slice(0, 200),
   }));
 
-  const prompt = buildPrompt(question, relevantResults);
+  const prompt = `${conversationPrompt(history)}\n\n${buildPrompt(question, relevantResults)}`;
 
   if (!apiKey) {
       return {

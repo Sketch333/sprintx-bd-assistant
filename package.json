@@ -11,6 +11,7 @@
     "search": "tsx src/scripts/search.ts",
     "extension:install": "npm --prefix extension install",
     "extension:build": "npm --prefix extension run build",
+    "extension:test": "npm --prefix extension test",
     "test": "npm run build && node --no-experimental-require-module test/commonjs-runtime.test.cjs && tsx --test test/**/*.test.ts"
   },
   "keywords": [

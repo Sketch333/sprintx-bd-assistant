@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { ApiError, askAssistant, crawlWebsites, createConversation, createUser, deleteConversation, draftMessage, getConversationMessages, getProfile, listConversations, listUsers, removeGeminiKey, renameConversation, setGeminiKey, syncGoogleDrive } from './api';
 import { signInWithGoogle, supabase } from './supabase';
@@ -6,6 +6,24 @@ import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftR
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let active = true;
+    let authChanged = false;
+    supabase.auth.getSession().then(({ data }) => { if (active && !authChanged) { setSession(data.session); setReady(true); } });
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => { authChanged = true; if (active) { setSession(next); setReady(true); } });
+    return () => { active = false; data.subscription.unsubscribe(); };
+  }, []);
+  if (!ready) return <main className="shell centered">Loading SprintX Assistant...</main>;
+  // Remount every account-scoped state on sign-out or identity change. Old async
+  // callbacks can only update the discarded workspace, never the next account.
+  return <SessionWorkspace key={session?.user.id ?? 'signed-out'} currentSession={session} />;
+}
+
+function SessionWorkspace({ currentSession }: { currentSession: Session | null }) {
+  const session = currentSession;
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [question, setQuestion] = useState('');
   const [result, setResult] = useState<AskResponse | null>(null);
   const [draftResult, setDraftResult] = useState<DraftResponse | null>(null);
@@ -19,7 +37,6 @@ export function App() {
     context: '',
   });
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
   const [asking, setAsking] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
@@ -41,23 +58,6 @@ export function App() {
   const [syncMessage, setSyncMessage] = useState('');
 
   useEffect(() => {
-    let active = true;
-    supabase.auth.getSession().then(({ data, error: sessionError }) => {
-      if (!active) return;
-      if (sessionError) setError(sessionError.message);
-      setSession(data.session);
-      setLoading(false);
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (active) setSession(nextSession);
-    });
-    return () => {
-      active = false;
-      listener.subscription.unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
     if (!session?.access_token) {
       setConversationId(undefined);
       return;
@@ -68,9 +68,12 @@ export function App() {
         if (!active) return;
         setConversations(conversations);
         const latest = conversations[0] ?? (await createConversation(session.access_token, 'SprintX workspace')).conversation;
+        if (!active) return;
+        const { messages } = await getConversationMessages(session.access_token, latest.id);
         if (active) {
           setConversationId(latest.id);
           setConversationTitle(latest.title);
+          setConversationMessages(messages);
           if (!conversations.length) setConversations([latest]);
         }
       })
@@ -80,7 +83,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [session?.access_token]);
+  }, [session?.user.id]);
 
   async function handleNewConversation() {
     if (!session?.access_token) return;
@@ -176,7 +179,7 @@ export function App() {
         setRole(profile.user.role);
       })
       .catch(() => undefined);
-  }, [session?.access_token]);
+  }, [session?.user.id]);
 
   async function handleSignIn() {
     setError('');
@@ -298,7 +301,7 @@ export function App() {
   async function handleAsk(event: FormEvent) {
     event.preventDefault();
     const trimmedQuestion = question.trim();
-    if (!trimmedQuestion || !session?.access_token) return;
+    if (!trimmedQuestion || !session?.access_token || historyBusy || asking || drafting || !conversationId) return;
     setError('');
     setAsking(true);
     try {
@@ -309,6 +312,7 @@ export function App() {
         { id: `local-assistant-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'assistant', content: response.answer, citations: response.sources, createdAt: new Date().toISOString() },
       ]);
     } catch (askError) {
+      if (!mounted.current) return;
       if (askError instanceof ApiError && askError.status === 401) {
         await supabase.auth.signOut();
       }
@@ -322,7 +326,7 @@ export function App() {
 
   async function handleDraft(event: FormEvent) {
     event.preventDefault();
-    if (!session?.access_token || !draft.audience.trim() || !draft.objective.trim()) return;
+    if (!session?.access_token || !draft.audience.trim() || !draft.objective.trim() || historyBusy || asking || drafting || !conversationId) return;
     setError('');
     setDrafting(true);
     try {
@@ -337,6 +341,7 @@ export function App() {
         { id: `local-draft-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'assistant', content: response.draft, citations: response.sources, createdAt: new Date().toISOString() },
       ]);
     } catch (draftError) {
+      if (!mounted.current) return;
       if (draftError instanceof ApiError && draftError.status === 401) await supabase.auth.signOut();
       setError(draftError instanceof Error ? draftError.message : 'The draft request failed.');
     } finally {
@@ -348,7 +353,6 @@ export function App() {
     if (result) await navigator.clipboard.writeText(result.answer);
   }
 
-  if (loading) return <main className="shell centered"><p>Loading SprintX Assistant...</p></main>;
 
   return (
     <main className="shell">
@@ -409,16 +413,16 @@ export function App() {
             <button className="text-button" type="button" onClick={() => setHistoryOpen(!historyOpen)} aria-expanded={historyOpen}>
               Conversation: {conversationTitle}
             </button>
-            <button className="text-button" type="button" onClick={handleNewConversation} disabled={historyBusy}>New</button>
+            <button className="text-button" type="button" onClick={handleNewConversation} disabled={historyBusy || asking || drafting || !conversationId}>New</button>
           </div>
           {historyOpen && <section className="card history-card">
             <div className="answer-heading"><h2>Conversation history</h2><button className="text-button" type="button" onClick={() => setHistoryOpen(false)}>Close</button></div>
             {conversations.length === 0 ? <p className="empty-state">No saved conversations yet.</p> : <div className="conversation-list">
               {conversations.map((conversation) => <div className={conversation.id === conversationId ? 'conversation-item active' : 'conversation-item'} key={conversation.id}>
-                <button className="conversation-select" type="button" onClick={() => handleSelectConversation(conversation)} disabled={historyBusy}>
+                <button className="conversation-select" type="button" onClick={() => handleSelectConversation(conversation)} disabled={historyBusy || asking || drafting}>
                   <strong>{conversation.title}</strong><small>{new Date(conversation.updatedAt).toLocaleString()}</small>
                 </button>
-                <span className="conversation-actions"><button className="text-button" type="button" onClick={() => handleRenameConversation(conversation)} disabled={historyBusy}>Rename</button><button className="text-button danger-text" type="button" onClick={() => handleDeleteConversation(conversation)} disabled={historyBusy}>Delete</button></span>
+                <span className="conversation-actions"><button className="text-button" type="button" onClick={() => handleRenameConversation(conversation)} disabled={historyBusy || asking || drafting}>Rename</button><button className="text-button danger-text" type="button" onClick={() => handleDeleteConversation(conversation)} disabled={historyBusy || asking || drafting}>Delete</button></span>
               </div>)}
             </div>}
           </section>}
@@ -437,7 +441,7 @@ export function App() {
           {mode === 'ask' ? <form className="ask-form" onSubmit={handleAsk}>
             <label htmlFor="question">Your question</label>
             <textarea id="question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="What services does SprintX offer?" rows={5} disabled={asking} />
-            <button className="primary-button full" type="submit" disabled={asking || !question.trim()}>{asking ? 'Researching...' : 'Ask SprintX'}</button>
+            <button className="primary-button full" type="submit" disabled={asking || drafting || historyBusy || !conversationId || !question.trim()}>{asking ? 'Researching...' : 'Ask SprintX'}</button>
           </form> : <form className="ask-form" onSubmit={handleDraft}>
             <label htmlFor="draft-type">Message type</label>
             <select id="draft-type" value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value as DraftInput['type'] })}>
@@ -456,7 +460,7 @@ export function App() {
             </div>
             <label htmlFor="context">Additional context (optional)</label>
             <textarea id="context" value={draft.context} onChange={(event) => setDraft({ ...draft, context: event.target.value })} placeholder="Mention a relevant challenge or offer..." rows={3} />
-            <button className="primary-button full" type="submit" disabled={drafting || !draft.audience.trim() || !draft.objective.trim()}>{drafting ? 'Writing...' : 'Create draft'}</button>
+            <button className="primary-button full" type="submit" disabled={drafting || asking || historyBusy || !conversationId || !draft.audience.trim() || !draft.objective.trim()}>{drafting ? 'Writing...' : 'Create draft'}</button>
           </form>}
           {mode === 'ask' && result ? (
             <section className="card answer-card">

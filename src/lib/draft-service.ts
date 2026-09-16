@@ -2,6 +2,7 @@ import { config } from '../config';
 import { SearchResult } from '../types';
 import { SYSTEM_PROMPT } from '../system-prompt';
 import { generateGeminiText } from './gemini-models';
+import { ContextMessage, conversationPrompt } from './conversation-context';
 
 export type DraftInput = {
   type: 'cold-email' | 'follow-up' | 'linkedin' | 'proposal';
@@ -18,7 +19,7 @@ export type DraftResult = {
   usedGemini: boolean;
 };
 
-export async function createDraft(input: DraftInput, results: SearchResult[], userApiKeyOverride?: string): Promise<DraftResult> {
+export async function createDraft(input: DraftInput, results: SearchResult[], userApiKeyOverride?: string, history: ContextMessage[] = []): Promise<DraftResult> {
   const relevantResults = results.filter((result) => result.score >= 0.18);
   const sources = relevantResults.map((result) => ({
     title: result.sourceTitle,
@@ -44,6 +45,7 @@ export async function createDraft(input: DraftInput, results: SearchResult[], us
     .map((result, index) => `Source ${index + 1} — ${result.sourceTitle}\n${result.content}`)
     .join('\n\n---\n\n');
   const prompt = `${SYSTEM_PROMPT}
+${conversationPrompt(history)}
 
 Create a ${input.type} for SprintX using ONLY the knowledge base context below.
 Audience: ${input.audience}

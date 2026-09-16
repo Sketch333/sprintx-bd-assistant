@@ -1,6 +1,23 @@
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config';
+import { boundConversationContext, ContextMessage } from './conversation-context';
+
+export class ConversationNotFoundError extends Error {
+  constructor() { super('Conversation not found'); }
+}
+
+export async function getConversationContext(userId: string, conversationId: string): Promise<ContextMessage[]> {
+  const client = requireStore();
+  const { data: conversation, error: lookupError } = await client.from('conversations').select('id')
+    .eq('id', conversationId).eq('user_id', userId).maybeSingle();
+  if (lookupError) throw new Error('Conversation lookup failed');
+  if (!conversation) throw new ConversationNotFoundError();
+  const { data, error } = await client.from('conversation_messages').select('role,content')
+    .eq('conversation_id', conversationId).order('created_at', { ascending: false }).limit(12);
+  if (error) throw new Error('Conversation context lookup failed');
+  return boundConversationContext((data ?? []).reverse());
+}
 
 export type Conversation = {
   id: string;
