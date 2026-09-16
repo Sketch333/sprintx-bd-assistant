@@ -4,6 +4,18 @@ import type { AddressInfo } from 'node:net';
 
 process.env.REQUIRE_AUTH = 'true';
 
+test('knowledge search rejects unauthenticated requests', async () => {
+  const app = require('../src/server').default as import('express').Express;
+  const server = app.listen(0);
+  try {
+    const { port } = server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${port}/api/kb/search`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: 'SprintX' }) });
+    assert.equal(response.status, 401);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test('protected endpoints return 401 when authentication is missing', async () => {
   const app = require('../src/server').default as import('express').Express;
   const server = app.listen(0);
