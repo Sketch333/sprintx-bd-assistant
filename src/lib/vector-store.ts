@@ -239,14 +239,16 @@ export class PgVectorStore implements VectorStore {
     // Lexical candidates come from the whole KB, not just the vector shortlist.
     // This recovers named files even when their embeddings rank below websites.
     const terms = searchTerms(query);
+    const normalizedTitle = `regexp_replace(lower(source_title), '[^a-z0-9]+', ' ', 'g')`;
+    const searchableText = `${normalizedTitle} || ' ' || content`;
     const lexicalRows = terms.length ? (await this.pool.query(
       `SELECT id, 1 - (embedding <=> $1::vector) AS score, content,
        source_id AS "sourceId", source_path AS "sourcePath", source_type AS "sourceType",
        source_title AS "sourceTitle", source_url AS "sourceUrl", chunk_index AS "chunkIndex"
        FROM kb_chunks
-       WHERE to_tsvector('simple', source_title || ' ' || content) @@ to_tsquery('simple', $3)
-       ORDER BY (to_tsvector('simple', source_title) @@ to_tsquery('simple', $3)) DESC,
-         ts_rank_cd(to_tsvector('simple', source_title || ' ' || content), to_tsquery('simple', $3)) DESC,
+       WHERE to_tsvector('simple', ${searchableText}) @@ to_tsquery('simple', $3)
+       ORDER BY (to_tsvector('simple', ${normalizedTitle}) @@ to_tsquery('simple', $3)) DESC,
+         ts_rank_cd(to_tsvector('simple', ${searchableText}), to_tsquery('simple', $3)) DESC,
          embedding <=> $1::vector
        LIMIT $2;`,
       [`[${embedding.join(',')}]`, candidateLimit, terms.map((term) => `'${term}'`).join(' | ')],
