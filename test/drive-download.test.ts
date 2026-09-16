@@ -39,3 +39,24 @@ test('Drive recursion excludes Archive folders', async () => {
   try { assert.deepEqual((await listGoogleDriveFilesRecursively('root', 'fixture-token')).map((file) => file.id), ['doc']); }
   finally { axios.get = original; }
 });
+
+test('Drive traversal preserves nested case-study folder paths and never enters Archive', async () => {
+  const original = axios.get;
+  const folder = (id: string, name: string) => ({ id, name, mimeType: 'application/vnd.google-apps.folder' });
+  axios.get = async (_url: string, options: any) => {
+    const parent = options.params.q;
+    const files = parent.includes("'root'") ? [folder('docs', 'Docs'), folder('archive', ' Archive ')]
+      : parent.includes("'docs'") ? [folder('cases', 'Case Studies')]
+      : parent.includes("'cases'") ? [folder('industry', 'Healthcare'), folder('old', 'Archive')]
+      : parent.includes("'industry'") ? [{ id: 'dream', name: 'Dream.pdf', mimeType: 'application/pdf' }]
+      : undefined;
+    assert.ok(files, 'unexpected folder traversal (possibly Archive)');
+    return { data: { files } };
+  };
+  try {
+    const files = await listGoogleDriveFilesRecursively('root', 'fixture-token');
+    assert.equal(files.length, 1);
+    assert.equal(files[0].folderPath, 'Docs/Case Studies/Healthcare');
+    assert.equal(files[0].id, 'dream');
+  } finally { axios.get = original; }
+});

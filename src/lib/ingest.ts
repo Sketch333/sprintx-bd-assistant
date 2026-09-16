@@ -12,6 +12,7 @@ import { chunkText, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP } from './chunker'
 import { embeddingProfile, generateEmbedding } from './embeddings';
 import { VectorStore } from './vector-store';
 import { KnowledgeChunk, SourceRecord, SourceType } from '../types';
+import { folderCategory } from './document-inventory';
 
 const supportedExtensions = new Set(['.txt', '.md', '.csv', '.pdf', '.docx', '.xlsx', '.xls']);
 
@@ -216,6 +217,7 @@ export type GoogleDriveSyncOptions = {
 };
 
 type GoogleDriveFile = {
+  folderPath?: string;
   id: string;
   name: string;
   mimeType: string;
@@ -255,12 +257,14 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
     if (Date.now() >= deadline || newEmbeddings >= maxNewChunks) return paused();
     const sourceId = `gdrive-${file.id}`;
     const previous = await vectorStore.getSource(sourceId);
-    const metadata = { source: 'google-drive', driveFileId: file.id, mimeType: file.mimeType, ingestionRoot, modifiedTime: file.modifiedTime ?? null, pipelineVersion };
+    const folderPath = file.folderPath ?? '';
+    const sourcePath = ['Google Drive', folderPath, file.name].filter(Boolean).join('/');
+    const metadata = { source: 'google-drive', driveFileId: file.id, mimeType: file.mimeType, ingestionRoot, folderPath, category: folderCategory(folderPath), modifiedTime: file.modifiedTime ?? null, pipelineVersion };
     if (file.modifiedTime && previous?.metadata?.syncComplete === true
       && previous.metadata.modifiedTime === file.modifiedTime
       && previous.metadata.pipelineVersion === pipelineVersion
       && previous.metadata.mimeType === file.mimeType) {
-      const renamed = { ...previous, sourceTitle: file.name, sourcePath: `Google Drive/${file.name}`, sourceUrl: file.webViewLink,
+      const renamed = { ...previous, sourceTitle: file.name, sourcePath, sourceUrl: file.webViewLink,
         metadata: { ...previous.metadata, ...metadata } };
       await vectorStore.refreshSourceChunks(renamed);
       await vectorStore.addSource(renamed);
@@ -286,7 +290,7 @@ export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options:
       id: sourceId,
       sourceType: googleExportMimeTypes[file.mimeType]?.sourceType ?? 'document',
       sourceTitle: file.name,
-      sourcePath: `Google Drive/${file.name}`,
+      sourcePath,
       sourceUrl: file.webViewLink,
       status: 'active',
       updatedAt: file.modifiedTime ?? new Date().toISOString(),
@@ -366,11 +370,12 @@ async function listGoogleDriveFiles(folderId: string, accessToken: string): Prom
 
 export async function listGoogleDriveFilesRecursively(folderId: string, accessToken: string, deadline = Infinity): Promise<GoogleDriveFile[]> {
   const files: GoogleDriveFile[] = [];
-  const folders = [folderId];
+  const folders = [{ id: folderId, path: '' }];
   const visitedFolders = new Set<string>();
 
   while (folders.length) {
-    const currentFolderId = folders.shift() as string;
+    const current = folders.shift()!;
+    const currentFolderId = current.id;
     if (visitedFolders.has(currentFolderId)) continue;
     visitedFolders.add(currentFolderId);
 
@@ -390,9 +395,9 @@ export async function listGoogleDriveFilesRecursively(folderId: string, accessTo
 
       for (const file of response.data.files ?? []) {
         if (file.mimeType === 'application/vnd.google-apps.folder') {
-          if (file.name.trim().toLowerCase() !== 'archive') folders.push(file.id);
+          if (file.name.trim().toLowerCase() !== 'archive') folders.push({ id: file.id, path: [current.path, file.name].filter(Boolean).join('/') });
         } else {
-          files.push(file);
+          files.push({ ...file, folderPath: current.path });
         }
       }
       pageToken = response.data.nextPageToken;

@@ -46,7 +46,7 @@ function requestedPage(question: string, fallback: number): number {
 export async function inventoryAnswer(request: InventoryRequest, store: VectorStore): Promise<AskAnswer> {
   const { action, filter, page } = request;
   if (request.unsupportedFilter) return {
-    answer: 'The document-inventory tool currently supports all indexed documents, Google Drive scope, filename-labelled case studies, and spreadsheets. It cannot reliably count or list content-, project-, date-, or file-format-filtered subsets yet; I should not substitute an unfiltered total. Ask for an unfiltered list, or ask a specific question about a named document.',
+    answer: 'The document-inventory tool currently supports all indexed documents, Google Drive scope, folder-classified case studies, and spreadsheets. It cannot reliably count or list content-, project-, date-, or file-format-filtered subsets yet; I should not substitute an unfiltered total. Ask for an unfiltered list, or ask a specific question about a named document.',
     sources: [], usedGemini: false,
   };
   if (!Number.isSafeInteger(page) || page < 1 || page > 1001) {
@@ -54,9 +54,9 @@ export async function inventoryAnswer(request: InventoryRequest, store: VectorSt
   }
   const offset = action === 'list' ? (page - 1) * 20 : 0;
   const inventory = await store.listDocuments({ ...filter, offset, limit: action === 'list' ? 20 : 1 });
-  const category = filter.caseStudies ? 'case studies identified by filename' : filter.sourceType === 'sheet' ? 'spreadsheets' : 'documents (including spreadsheets)';
+  const category = filter.caseStudies ? 'case studies classified by folder' : filter.sourceType === 'sheet' ? 'spreadsheets' : 'documents (including spreadsheets)';
   const scope = filter.scope === 'drive' ? 'the indexed Google Drive knowledge base' : 'the indexed knowledge base, excluding webpages';
-  const caveat = `This counts active, fully indexed documents, not the live Drive directory or text chunks.${filter.caseStudies ? ' Case-study classification uses the words “case study” or “case studies” in filenames; renamed or unlabelled case studies are not included.' : ''}`;
+  const caveat = `This counts active, fully indexed documents, not the live Drive directory or text chunks.${filter.caseStudies ? ' Documents under the Case Studies folder and its subfolders are included regardless of filename. Sync Google Drive after deploying this update to refresh folder classification for existing records without re-embedding unchanged content.' : ''}`;
   const summary = `There are ${inventory.total} ${category} in ${scope}.`;
   if (action === 'count' || inventory.total === 0) return { answer: `${summary}\n\n${caveat}\n\nSource: indexed document inventory.`, sources: [], usedGemini: false };
   const pages = Math.ceil(inventory.total / 20);

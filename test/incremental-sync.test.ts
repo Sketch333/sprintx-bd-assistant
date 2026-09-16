@@ -27,12 +27,21 @@ for (const kind of ['memory', 'postgres'] as const) {
     const realNow = Date.now;
     Date.now = () => simulatedTime ?? realNow();
     let emptyFolder = false;
+    let nested = false;
+    let caseFolderName = 'Case Studies';
     let content = 'React PostgreSQL';
     let file = { id: 'dream', name: 'Case Study - Dream.txt', mimeType: 'text/plain', modifiedTime: '2026-09-16T00:00:00Z', webViewLink: 'https://drive.google.com/file/d/dream/view' };
     axios.post = async () => ({ data: { access_token: 'fixture-token' } });
-    axios.get = async (url: string) => {
+    axios.get = async (url: string, request: any) => {
       if (url.endsWith('/files')) {
         if (listingFails) throw new Error('fixture listing unavailable');
+        if (nested && !emptyFolder) {
+          const parent = request.params.q;
+          return { data: { files: parent.includes("'root'")
+            ? [{ id: 'docs', name: 'Docs', mimeType: 'application/vnd.google-apps.folder' }]
+            : parent.includes("'docs'") ? [{ id: 'cases', name: caseFolderName, mimeType: 'application/vnd.google-apps.folder' }]
+            : [file] } };
+        }
         return { data: { files: emptyFolder ? [] : [file] } };
       }
       downloads++;
@@ -56,13 +65,27 @@ for (const kind of ['memory', 'postgres'] as const) {
       assert.equal(repeated.skippedFiles, 1);
       assert.equal(embeds, 1);
       assert.equal(downloads, 1);
+      nested = true;
+      const categorized = await ingestGoogleDriveFolder(store, options);
+      assert.equal(categorized.newEmbeddings, 0);
+      assert.equal(downloads, 1);
+      assert.equal((await store.getSource('gdrive-dream'))?.metadata?.category, 'case-study');
+      assert.equal((await store.getSource('gdrive-dream'))?.sourcePath, 'Google Drive/Docs/Case Studies/Case Study - Dream.txt');
+      assert.equal((await store.listDocuments({ scope: 'drive', caseStudies: true })).total, 1);
       file = { ...file, name: 'Dream.txt' };
       await ingestGoogleDriveFolder(store, options);
       assert.equal(downloads, 1);
+      assert.equal((await store.listDocuments({ scope: 'drive', caseStudies: true })).total, 1, 'Dream.txt remains a case study after renaming');
       const renamed = await (store as any).getSource('gdrive-dream');
       assert.equal(renamed.sourceTitle, 'Dream.txt');
       if (db) assert.equal((await db.query<any>('SELECT source_title FROM kb_chunks')).rows[0].source_title, 'Dream.txt');
       else assert.equal((store as any).chunks[0].sourceTitle, 'Dream.txt');
+      caseFolderName = 'Approved Messaging';
+      await ingestGoogleDriveFolder(store, options);
+      assert.equal((await store.listDocuments({ scope: 'drive', caseStudies: true })).total, 0);
+      assert.equal(downloads, 1);
+      caseFolderName = 'Case Studies';
+      await ingestGoogleDriveFolder(store, options);
       file = { ...file, modifiedTime: '2026-09-16T01:00:00Z' };
       // A timestamp-only change should not spend embedding quota.
       await ingestGoogleDriveFolder(store, options);

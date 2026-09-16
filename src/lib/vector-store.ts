@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { config } from '../config';
 import { KnowledgeChunk, SearchResult, SourceRecord } from '../types';
 import { embeddingProfile, generateEmbedding } from './embeddings';
-import { DocumentFilter, DocumentPage, documentPageBounds, isIndexedDocument, isDriveDocument, isCaseStudyTitle, matchesDocumentTitle, titleWords, titleNoise } from './document-inventory';
+import { DocumentFilter, DocumentPage, documentPageBounds, isIndexedDocument, isDriveDocument, isCaseStudyDocument, matchesDocumentTitle, titleWords, titleNoise } from './document-inventory';
 
 export interface VectorStore {
   listDocuments(filter?: DocumentFilter): Promise<DocumentPage>;
@@ -33,7 +33,7 @@ export class MemoryVectorStore implements VectorStore {
     const { offset, limit } = documentPageBounds(filter);
     const documents = this.indexedDocuments().filter((source) =>
       (filter.scope !== 'drive' || isDriveDocument(source)) && (!filter.sourceType || source.sourceType === filter.sourceType)
-      && (!filter.caseStudies || isCaseStudyTitle(source.sourceTitle)))
+      && (!filter.caseStudies || isCaseStudyDocument(source)))
       .sort((a, b) => a.sourceTitle.toLowerCase().localeCompare(b.sourceTitle.toLowerCase()) || a.id.localeCompare(b.id));
     return { documents: documents.slice(offset, offset + limit), total: documents.length, hasMore: offset + limit < documents.length };
   }
@@ -153,7 +153,10 @@ export class PgVectorStore implements VectorStore {
         s.updated_at AS "updatedAt", s.metadata FROM kb_sources s
       WHERE ${indexedDocumentSql}
         AND (NOT $1::boolean OR s.id LIKE 'gdrive-%' OR s.metadata->>'source'='google-drive')
-        AND (NOT $2::boolean OR regexp_replace(lower(s.source_title), '[^a-z0-9]+', ' ', 'g') ~ '(^| )case +stud(y|ies)( |$)')
+        AND (NOT $2::boolean OR CASE WHEN s.metadata->>'category' IS NOT NULL
+          THEN s.metadata->>'category'='case-study'
+          ELSE lower(COALESCE(s.metadata->>'folderPath', regexp_replace(translate(s.source_path, chr(92), '/'), '/[^/]*$', '')))
+            ~ '(^|/) *case studies *(/|$)' END)
         AND ($5::text IS NULL OR s.source_type=$5)
     ), page AS (SELECT * FROM matched ORDER BY lower("sourceTitle"), id OFFSET $3 LIMIT $4)
     SELECT (SELECT count(*) FROM matched)::int AS total,

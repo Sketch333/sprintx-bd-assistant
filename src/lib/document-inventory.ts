@@ -18,8 +18,17 @@ export function isDriveDocument(source: SourceRecord): boolean {
   return source.id.startsWith('gdrive-') || source.metadata?.source === 'google-drive';
 }
 
-export function isCaseStudyTitle(title: string): boolean {
-  return /\bcase\s+stud(?:y|ies)\b/.test(title.toLowerCase().replace(/[^a-z0-9]+/g, ' '));
+export function folderCategory(folderPath: string): 'case-study' | 'uncategorized' {
+  return folderPath.replace(/\\/g, '/').split('/').some((folder) => folder.trim().toLowerCase() === 'case studies') ? 'case-study' : 'uncategorized';
+}
+
+export function isCaseStudyDocument(source: SourceRecord): boolean {
+  if (typeof source.metadata?.category === 'string') return source.metadata.category === 'case-study';
+  // Existing local records already have full paths. Legacy flat Drive paths
+  // require a sync metadata refresh; filenames are deliberately not evidence.
+  const folderPath = typeof source.metadata?.folderPath === 'string' ? source.metadata.folderPath
+    : source.sourcePath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+  return folderCategory(folderPath) === 'case-study';
 }
 
 // Filename wrappers/extensions/copy suffixes are not project names. Do not

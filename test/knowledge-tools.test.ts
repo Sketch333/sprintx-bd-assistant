@@ -32,12 +32,12 @@ test('Ask counts and lists the entire indexed inventory without an embedding or 
   const oldModel = sdk.GoogleGenerativeAI.prototype.getGenerativeModel;
   const oldKey = process.env.GEMINI_API_KEY;
   try {
-    for (let i = 1; i <= 52; i++) await add(`gdrive-${i}`, `Case Study - Project ${String(i).padStart(2, '0')}.pdf`, 'React');
+    for (let i = 1; i <= 52; i++) await add(`gdrive-${i}`, `Project ${String(i).padStart(2, '0')}.pdf`, 'React', { metadata: { source: 'google-drive', syncComplete: true, folderPath: 'Docs/Case Studies', category: 'case-study' } });
     process.env.GEMINI_API_KEY = 'fixture-key';
     sdk.GoogleGenerativeAI.prototype.getGenerativeModel = () => { throw new Error('inventory must not call Gemini'); };
     const count = await ask.answerFromKnowledgeTools('How many case studies are in Google Drive?', store);
     assert.match(count.answer, /52/);
-    assert.match(count.answer, /filename/i);
+    assert.match(count.answer, /folder/i);
     assert.match(count.answer, /indexed/i);
     assert.equal(count.usedGemini, false);
     const history = [{ role: 'user' as const, content: 'How many case studies are in Google Drive?' }, { role: 'assistant' as const, content: count.answer }];
@@ -174,13 +174,24 @@ test('a generic Services filename does not exclude other sources from a broad ca
 });
 
 for (const kind of ['memory', 'postgres'] as const) {
+  test(`${kind}: case-study category follows folder provenance, not misleading filenames`, async () => {
+    const { store, add, close } = await fixture(kind);
+    try {
+      await add('gdrive-dream', 'Dream.pdf', 'React', { metadata: { source: 'google-drive', syncComplete: true, folderPath: 'Docs/Case Studies/Nested', category: 'case-study' } });
+      await add('gdrive-outside', 'Case Study - Outside.pdf', 'Messaging', { metadata: { source: 'google-drive', syncComplete: true, folderPath: 'Docs/Approved Messaging', category: 'uncategorized' } });
+      await add('gdrive-legacy', 'Legacy Case Study.pdf', 'Old');
+      const cases = await store.listDocuments({ scope: 'drive', caseStudies: true });
+      assert.equal(cases.total, 1);
+      assert.equal(cases.documents[0].id, 'gdrive-dream');
+    } finally { await close(); }
+  });
   test(`${kind}: inventory counts documents, not chunks, excluding sites, pending and unindexed records`, async () => {
     const { store, add, close } = await fixture(kind);
     try {
-      await add('gdrive-dream', 'Dream.pdf', 'React');
+      await add('gdrive-dream', 'Dream.pdf', 'React', { metadata: { source: 'google-drive', syncComplete: true, folderPath: 'Docs/Case Studies/Nested' } });
       await store.addChunk({ id: 'gdrive-dream-1', sourceId: 'gdrive-dream', sourceTitle: 'Dream.pdf', sourcePath: 'Google Drive/Dream.pdf', sourceType: 'document', chunkIndex: 1, content: 'PostgreSQL' });
-      await add('gdrive-brevidee', 'Brevidee - Case Study (1).pdf', 'Node.js');
-      await add('gdrive-pioneer', 'Case Study - Pioneer Partners.docx', 'Next.js');
+      await add('gdrive-brevidee', 'Brevidee - Case Study (1).pdf', 'Node.js', { metadata: { source: 'google-drive', syncComplete: true, category: 'case-study' } });
+      await add('gdrive-pioneer', 'Case Study - Pioneer Partners.docx', 'Next.js', { sourcePath: 'Google Drive/Docs/Case Studies/Pioneer.docx' });
       await add('gdrive-sheet', 'Leads.xlsx', 'Email', { sourceType: 'sheet' });
       await add('gdrive-pending', 'Pending Case Study.pdf', 'Partial', { metadata: { source: 'google-drive', syncComplete: false } });
       await add('gdrive-empty', 'Empty.pdf', '', {}, false);
@@ -198,8 +209,8 @@ for (const kind of ['memory', 'postgres'] as const) {
       assert.equal(new Set([...page.documents, ...next.documents].map((source) => source.id)).size, 4);
       assert.equal((await store.listDocuments({ scope: 'all' })).total, 5);
       const cases = await store.listDocuments({ scope: 'drive', caseStudies: true });
-      assert.equal(cases.total, 2, 'Dream.pdf is not a case study solely on the basis of being a PDF');
-      assert.deepEqual(cases.documents.map((source) => source.id).sort(), ['gdrive-brevidee', 'gdrive-pioneer']);
+      assert.equal(cases.total, 3, 'Dream.pdf is a case study because of its folder');
+      assert.deepEqual(cases.documents.map((source) => source.id).sort(), ['gdrive-brevidee', 'gdrive-dream', 'gdrive-pioneer']);
     } finally { await close(); }
   });
 
