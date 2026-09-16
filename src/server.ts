@@ -194,6 +194,8 @@ app.post('/api/kb/site-sync', async (req: Request, res: Response) => {
 
 app.post('/api/kb/search', async (req: Request, res: Response) => {
   try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (config.requireAuth && !user) return res.status(401).json({ ok: false, error: 'Authentication required' });
     const parse = searchSchema.safeParse(req.body);
     if (!parse.success) {
       return res.status(400).json({ ok: false, error: parse.error.issues });

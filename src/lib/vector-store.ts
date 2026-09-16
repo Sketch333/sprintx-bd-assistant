@@ -9,7 +9,7 @@ export interface VectorStore {
   addSource(source: SourceRecord): Promise<void>;
   addChunk(chunk: KnowledgeChunk): Promise<void>;
   removeChunksExcept(sourceId: string, chunkIds: Set<string>): Promise<number>;
-  removeSourcesExcept(prefix: string, sourceIds: Set<string>): Promise<number>;
+  removeSourcesExcept(prefix: string, sourceIds: Set<string>, ingestionRoot?: string): Promise<number>;
   search(query: string, limit?: number): Promise<SearchResult[]>;
   getStats(): Promise<{ chunkCount: number; sourceCount: number }>;
 }
@@ -41,8 +41,9 @@ export class MemoryVectorStore implements VectorStore {
     return staleIds.size;
   }
 
-  async removeSourcesExcept(prefix: string, sourceIds: Set<string>): Promise<number> {
-    const staleIds = [...this.sources.keys()].filter((id) => id.startsWith(prefix) && !sourceIds.has(id));
+  async removeSourcesExcept(prefix: string, sourceIds: Set<string>, ingestionRoot?: string): Promise<number> {
+    const staleIds = [...this.sources.keys()].filter((id) => id.startsWith(prefix) && !sourceIds.has(id)
+      && (!ingestionRoot || this.sources.get(id)?.metadata?.ingestionRoot === ingestionRoot));
     for (const sourceId of staleIds) {
       this.sources.delete(sourceId);
     }
@@ -203,16 +204,11 @@ export class PgVectorStore implements VectorStore {
     return rows.length;
   }
 
-  async removeSourcesExcept(prefix: string, sourceIds: Set<string>): Promise<number> {
+  async removeSourcesExcept(prefix: string, sourceIds: Set<string>, ingestionRoot?: string): Promise<number> {
     const { rows } = await this.pool.query(
-      `SELECT id FROM kb_sources WHERE id LIKE $1 AND NOT (id = ANY($2::text[]));`,
-      [`${prefix}%`, [...sourceIds]],
-    );
-    if (!rows.length) return 0;
-
-    await this.pool.query(
-      `DELETE FROM kb_sources WHERE id LIKE $1 AND NOT (id = ANY($2::text[]));`,
-      [`${prefix}%`, [...sourceIds]],
+      `DELETE FROM kb_sources WHERE id LIKE $1 AND NOT (id = ANY($2::text[]))
+       AND ($3::text IS NULL OR metadata->>'ingestionRoot' = $3) RETURNING id;`,
+      [`${prefix}%`, [...sourceIds], ingestionRoot ?? null],
     );
     return rows.length;
   }

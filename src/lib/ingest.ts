@@ -16,12 +16,17 @@ import { KnowledgeChunk, SourceRecord, SourceType } from '../types';
 const supportedExtensions = new Set(['.txt', '.md', '.csv', '.pdf', '.docx', '.xlsx', '.xls']);
 
 export async function ingestDriveFolder(rootDirectory: string, vectorStore: VectorStore): Promise<{ discovered: number; chunks: number; sources: number }> {
+  const ingestionRoot = path.resolve(rootDirectory);
+  if (!fs.existsSync(ingestionRoot) || !fs.statSync(ingestionRoot).isDirectory()) {
+    throw new Error('Local ingestion directory does not exist');
+  }
   const files = await discoverDriveFiles(rootDirectory);
   const sources = new Map<string, SourceRecord>();
   let chunkCount = 0;
   for (const file of files) {
     const text = await extractTextFromFile(file);
     const source = buildSourceRecord(file, text);
+    source.metadata = { ...source.metadata, ingestionRoot };
     sources.set(source.id, source);
     await vectorStore.addSource(source);
 
@@ -50,7 +55,7 @@ export async function ingestDriveFolder(rootDirectory: string, vectorStore: Vect
     await vectorStore.removeChunksExcept(source.id, activeChunkIds);
   }
 
-  await vectorStore.removeSourcesExcept('source-', new Set(sources.keys()));
+  await vectorStore.removeSourcesExcept('source-', new Set(sources.keys()), ingestionRoot);
   const stats = await vectorStore.getStats();
 
   return {
