@@ -328,7 +328,7 @@ async function listGoogleDriveFiles(folderId: string, accessToken: string): Prom
   return files;
 }
 
-async function listGoogleDriveFilesRecursively(folderId: string, accessToken: string): Promise<GoogleDriveFile[]> {
+export async function listGoogleDriveFilesRecursively(folderId: string, accessToken: string): Promise<GoogleDriveFile[]> {
   const files: GoogleDriveFile[] = [];
   const folders = [folderId];
   const visitedFolders = new Set<string>();
@@ -365,7 +365,7 @@ async function listGoogleDriveFilesRecursively(folderId: string, accessToken: st
   return files;
 }
 
-async function downloadGoogleDriveText(file: GoogleDriveFile, accessToken: string): Promise<string> {
+export async function downloadGoogleDriveText(file: GoogleDriveFile, accessToken: string): Promise<string> {
   const exportDetails = googleExportMimeTypes[file.mimeType];
   const url = exportDetails
     ? `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}/export`
