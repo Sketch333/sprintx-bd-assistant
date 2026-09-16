@@ -13,7 +13,6 @@ export const GENERATION_MODELS = [
 
 export const EMBEDDING_MODELS = [
   'gemini-embedding-001',
-  'text-embedding-004',
 ];
 
 export const LIVE_MODELS = [
@@ -76,7 +75,7 @@ export async function generateGeminiEmbedding(text: string, apiKey?: string): Pr
       }
     } catch (error) {
       errors.push(error);
-      console.warn(`Gemini embedding model failed: ${modelName}`, error);
+      console.warn(`Gemini embedding model failed: ${modelName}`);
     }
   }
 

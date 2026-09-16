@@ -224,7 +224,7 @@ type GoogleDriveFile = {
 
 const googleExportMimeTypes: Record<string, { mimeType: string; sourceType: SourceType }> = {
   'application/vnd.google-apps.document': { mimeType: 'text/plain', sourceType: 'document' },
-  'application/vnd.google-apps.spreadsheet': { mimeType: 'text/csv', sourceType: 'sheet' },
+  'application/vnd.google-apps.spreadsheet': { mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', sourceType: 'sheet' },
 };
 
 export async function ingestGoogleDriveFolder(vectorStore: VectorStore, options: GoogleDriveSyncOptions): Promise<{ discovered: number; chunks: number; sources: number; removed: number; failedFiles: string[] }> {
@@ -353,7 +353,7 @@ export async function listGoogleDriveFilesRecursively(folderId: string, accessTo
 
       for (const file of response.data.files ?? []) {
         if (file.mimeType === 'application/vnd.google-apps.folder') {
-          folders.push(file.id);
+          if (file.name.trim().toLowerCase() !== 'archive') folders.push(file.id);
         } else {
           files.push(file);
         }
@@ -372,10 +372,11 @@ export async function downloadGoogleDriveText(file: GoogleDriveFile, accessToken
     : `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}`;
   const response = await axios.get(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
-    params: exportDetails ? { mimeType: exportDetails.mimeType } : undefined,
+    params: exportDetails ? { mimeType: exportDetails.mimeType } : { alt: 'media' },
     responseType: 'arraybuffer',
     timeout: 30000,
   });
+  if (exportDetails?.sourceType === 'sheet') return extractTextFromBuffer(Buffer.from(response.data), `${file.name}.xlsx`);
   if (exportDetails || file.mimeType.startsWith('text/')) return Buffer.from(response.data).toString('utf8');
   return extractTextFromBuffer(Buffer.from(response.data), file.name);
 }

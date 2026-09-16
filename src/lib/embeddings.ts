@@ -6,9 +6,13 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   if (apiKey) {
     try {
       return await generateGeminiEmbedding(text, apiKey);
-    } catch (error) {
-      console.warn('Falling back to local embedding generation because Gemini embedding failed:', error);
+    } catch {
+      throw new Error('Gemini embedding failed; retry without changing the vector space.');
     }
+  }
+
+  if (process.env.VERCEL || process.env.DATABASE_URL || process.env.NODE_ENV === 'production') {
+    throw new Error('Gemini API key is required for persistent production embeddings.');
   }
 
   return fallbackEmbedding(text);
