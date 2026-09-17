@@ -35,6 +35,8 @@
 
 **Interfaces:** Keep existing API response shapes and authentication flow. Consume Task 1 presentation transport for theme only. Group citations with their original 1-based source indices. Refine sets question, Use in Draft sets mode/context; neither auto-sends.
 
+Visual verification uses a development-only Vite preview under extension/tests/preview/ with explicit mock auth/API module aliases and a visible synthetic-data banner. It is excluded from production entrypoints and makes no real API/provider calls. Share a local invocation command and fixture URL so the coordinator can inspect the actual workspace in the connected in-app browser; this is not evidence of unpacked Chrome behavior.
+
 - [ ] RED: Render real components and verify grouped duplicate citations retain source numbers, javascript URLs are never linked, raw HTML is text, mutually exclusive secondary views, input survives failed request, and masked-key state clears on settings exit. Extend account/session tests rather than replace them.
 - [ ] GREEN: Use graphite/warm-white design tokens, teal accent, system themes, restrained glass surfaces, keyboard-visible focus, reduced motion and responsive layout. Replace duplicate result/transcript presentation with one timeline and anchored composer; keep all messages and evidence accessible. Add suggested prompts, copy success/failure feedback, Refine and Use in Draft actions with explicit bounded-context feedback. Make History/Settings/Admin mutually exclusive secondary views, retain their full functionality and busy protections. No new styling dependency is required.
 - [ ] Verify: npm run extension:test, npm run extension:build, inspect actual light/dark/narrow rendering and keyboard navigation; commit task files and report evidence.
