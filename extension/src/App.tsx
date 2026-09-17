@@ -3,7 +3,10 @@ import type { Session } from '@supabase/supabase-js';
 import { ApiError, askAssistant, crawlWebsites, createConversation, createUser, deleteConversation, draftMessage, getConversationMessages, getProfile, listConversations, listUsers, removeGeminiKey, renameConversation, setGeminiKey, syncGoogleDrive } from './api';
 import { authorizePresentation, isFramedPresentation, requestTrustedWindow } from './appearance';
 import { continueDriveSync } from './drive-sync';
-import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftResponse, ProvisionedUser } from './types';
+import { AnswerContent } from './components/AnswerContent';
+import { Sources } from './components/Sources';
+import { AppearanceSettings, useAppearance } from './components/AppearanceSettings';
+import type { Conversation, ConversationMessage, DraftInput, ProvisionedUser } from './types';
 
 export function App() {
   const [auth, setAuth] = useState<typeof import('./supabase') | null>(null);
@@ -51,6 +54,7 @@ function AccountApp({ auth }: { auth: typeof import('./supabase') }) {
 }
 
 function SessionWorkspace({ currentSession, auth }: { currentSession: Session | null; auth: typeof import('./supabase') }) {
+  const appearance = useAppearance();
   const { supabase, signInWithGoogle } = auth;
   const session = currentSession;
   const mounted = useRef(true);
@@ -58,8 +62,6 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   useEffect(() => () => { driveSyncAbort.current?.abort(); }, []);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [question, setQuestion] = useState('');
-  const [result, setResult] = useState<AskResponse | null>(null);
-  const [draftResult, setDraftResult] = useState<DraftResponse | null>(null);
   const [mode, setMode] = useState<'ask' | 'draft'>('ask');
   const [draft, setDraft] = useState<DraftInput>({
     type: 'cold-email',
@@ -77,18 +79,30 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   const [conversationTitle, setConversationTitle] = useState('New conversation');
   const [conversationMessages, setConversationMessages] = useState<ConversationMessage[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [secondaryView, setSecondaryView] = useState<'history' | 'settings' | 'admin' | null>(null);
+  const historyOpen = secondaryView === 'history';
+  const settingsOpen = secondaryView === 'settings';
+  const adminOpen = secondaryView === 'admin';
+  const setHistoryOpen = (open: boolean) => setSecondaryView(open ? 'history' : null);
+  const setSettingsOpen = (open: boolean) => setSecondaryView(open ? 'settings' : null);
   const [historyBusy, setHistoryBusy] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [geminiKey, setGeminiKeyValue] = useState('');
   const [keyConfigured, setKeyConfigured] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
   const [role, setRole] = useState<'admin' | 'intern'>();
-  const [adminOpen, setAdminOpen] = useState(false);
   const [users, setUsers] = useState<ProvisionedUser[]>([]);
   const [newUser, setNewUser] = useState({ email: '', name: '', role: 'intern' as 'admin' | 'intern' });
   const [adminBusy, setAdminBusy] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const latestAssistantId = [...conversationMessages].reverse().find((message) => message.role === 'assistant')?.id;
+  const composerBusy = asking || drafting || historyBusy;
+  const secondaryBusy = adminBusy || savingKey || historyBusy;
+  useEffect(() => { if (!settingsOpen) setGeminiKeyValue(''); }, [settingsOpen]);
+  function toggleSecondary(view: 'history' | 'settings' | 'admin') {
+    if (secondaryBusy) return;
+    setSecondaryView((current) => current === view ? null : view);
+  }
 
   useEffect(() => {
     if (!session?.access_token) {
@@ -128,8 +142,6 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
       setConversationTitle(created.conversation.title);
       setConversations((current) => [created.conversation, ...current]);
       setConversationMessages([]);
-      setResult(null);
-      setDraftResult(null);
       setHistoryOpen(false);
     } catch (conversationError) {
       setError(conversationError instanceof Error ? conversationError.message : 'Could not create a conversation.');
@@ -147,17 +159,6 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
       setConversationId(conversation.id);
       setConversationTitle(conversation.title);
       setConversationMessages(messages);
-      const lastAssistant = [...messages].reverse().find((message: ConversationMessage) => message.role === 'assistant');
-      setResult(lastAssistant ? {
-        ok: true,
-        question: [...messages].reverse().find((message) => message.role === 'user')?.content ?? '',
-        answer: lastAssistant.content,
-        sources: lastAssistant.citations,
-        usedGemini: true,
-        userId: null,
-        conversationId: conversation.id,
-      } : null);
-      setDraftResult(null);
       setHistoryOpen(false);
     } catch (conversationError) {
       setError(conversationError instanceof Error ? conversationError.message : 'Could not load conversation history.');
@@ -234,7 +235,6 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     setError('');
     const { error: signOutError } = await supabase.auth.signOut();
     if (signOutError) setError(signOutError.message);
-    setResult(null);
     setSettingsOpen(false);
   }
 
@@ -271,7 +271,8 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
 
   async function openAdmin() {
     if (!session?.access_token) return;
-    setAdminOpen(!adminOpen);
+    if (secondaryBusy) return;
+    toggleSecondary('admin');
     if (adminOpen) return;
     setAdminBusy(true);
     setError('');
@@ -357,7 +358,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     setAsking(true);
     try {
       const response = await askAssistant(trimmedQuestion, session.access_token, conversationId);
-      setResult(response);
+      setQuestion('');
       setConversationMessages((current) => [...current,
         { id: `local-user-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'user', content: trimmedQuestion, citations: [], createdAt: new Date().toISOString() },
         { id: `local-assistant-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'assistant', content: response.answer, citations: response.sources, createdAt: new Date().toISOString() },
@@ -387,7 +388,6 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
         objective: draft.objective.trim(),
         context: draft.context?.trim() || undefined,
       }, session.access_token, conversationId);
-      setDraftResult(response);
       setConversationMessages((current) => [...current,
         { id: `local-draft-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'assistant', content: response.draft, citations: response.sources, createdAt: new Date().toISOString() },
       ]);
@@ -400,8 +400,18 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     }
   }
 
-  async function copyAnswer() {
-    if (result) await navigator.clipboard.writeText(result.answer);
+  async function copyAnswer(content: string) {
+    try { await navigator.clipboard.writeText(content); if (mounted.current) setFeedback('Copied to clipboard.'); }
+    catch { if (mounted.current) setFeedback('Could not copy. Select the answer text and copy manually.'); }
+  }
+  function stageAnswer(content: string, target: 'ask' | 'draft') {
+    if (composerBusy) return;
+    const context = content.slice(0, 2000);
+    setMode(target);
+    if (target === 'ask') setQuestion(`Refine this response:\n${context}\n\nFocus on: `);
+    else setDraft((current) => ({ ...current, context }));
+    setFeedback(`Added ${context.length.toLocaleString()} characters${content.length > 2000 ? ' (limited to 2,000 characters)' : ''} to ${target === 'ask' ? 'your question' : 'draft context'}. Review and edit before sending.`);
+    requestAnimationFrame(() => document.getElementById(target === 'ask' ? 'question' : 'context')?.focus());
   }
 
 
@@ -412,7 +422,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
           <p className="eyebrow">SPRINTX</p>
           <h1>BD Assistant</h1>
         </div>
-        {session && <div className="header-actions">{role === 'admin' && <button className="text-button" onClick={openAdmin}>Admin</button>}<button className="text-button" onClick={() => setSettingsOpen(!settingsOpen)}>Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></div>}
+        {session && <nav className="header-actions" aria-label="Workspace">{role === 'admin' && <button className="text-button" aria-expanded={adminOpen} disabled={secondaryBusy} onClick={openAdmin}>Admin</button>}<button className="text-button" aria-expanded={settingsOpen} disabled={secondaryBusy} onClick={() => toggleSecondary('settings')}>Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></nav>}
       </header>
 
       {!session ? (
@@ -446,6 +456,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
             <div className="user-list">{users.map((user) => <div className="user-row" key={user.id}><span>{user.name}<small>{user.email}</small></span><strong>{user.role}</strong></div>)}</div>
           </section>}
           {settingsOpen && <section className="card settings-card">
+            <AppearanceSettings appearance={appearance} />
             <h2>Gemini key</h2>
             <p className="muted">Your key is encrypted on the backend and is never stored in this extension.</p>
             <p className="key-status">{keyConfigured ? 'Gemini key configured' : 'No personal Gemini key configured'}</p>
@@ -456,18 +467,14 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
             </form>
             {keyConfigured && <button className="danger-button full" type="button" onClick={handleRemoveKey} disabled={savingKey}>Remove key</button>}
           </section>}
-          <div className="tabs" role="tablist" aria-label="Assistant mode">
-            <button className={mode === 'ask' ? 'tab active' : 'tab'} onClick={() => setMode('ask')} type="button">Ask</button>
-            <button className={mode === 'draft' ? 'tab active' : 'tab'} onClick={() => setMode('draft')} type="button">Draft</button>
-          </div>
           <div className="conversation-bar">
-            <button className="text-button" type="button" onClick={() => setHistoryOpen(!historyOpen)} aria-expanded={historyOpen}>
+            <button className="text-button" type="button" disabled={secondaryBusy} onClick={() => toggleSecondary('history')} aria-expanded={historyOpen}>
               Conversation: {conversationTitle}
             </button>
             <button className="text-button" type="button" onClick={handleNewConversation} disabled={historyBusy || asking || drafting || !conversationId}>New</button>
           </div>
           {historyOpen && <section className="card history-card">
-            <div className="answer-heading"><h2>Conversation history</h2><button className="text-button" type="button" onClick={() => setHistoryOpen(false)}>Close</button></div>
+            <div className="answer-heading"><h2>Conversation history</h2><button className="text-button" type="button" disabled={secondaryBusy} onClick={() => setHistoryOpen(false)}>Close</button></div>
             {conversations.length === 0 ? <p className="empty-state">No saved conversations yet.</p> : <div className="conversation-list">
               {conversations.map((conversation) => <div className={conversation.id === conversationId ? 'conversation-item active' : 'conversation-item'} key={conversation.id}>
                 <button className="conversation-select" type="button" onClick={() => handleSelectConversation(conversation)} disabled={historyBusy || asking || drafting}>
@@ -477,23 +484,35 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
               </div>)}
             </div>}
           </section>}
-          {conversationMessages.length > 0 && <section className="card transcript-card">
-            <div className="answer-heading"><h2>Transcript</h2><span className="muted">{conversationMessages.length} messages</span></div>
-            <div className="transcript">
-              {conversationMessages.map((message) => <article className={message.role === 'user' ? 'transcript-message user-message' : 'transcript-message'} key={message.id}>
-                <strong>{message.role === 'user' ? 'You' : 'Assistant'}</strong>
-                <p>{message.content}</p>
-              </article>)}
-            </div>
-          </section>}
-          <section className="intro">
-            <p>{mode === 'ask' ? 'Ask about SprintX services, positioning, case studies, or outreach strategy.' : 'Create a grounded outreach message using SprintX knowledge.'}</p>
+          {!secondaryView && <><section className="timeline" aria-label="Conversation timeline" aria-busy={composerBusy}>
+            {conversationMessages.length ? conversationMessages.map((message) => <article id={message.id === latestAssistantId ? 'latest-message' : undefined} className={message.role === 'user' ? 'timeline-message user-message' : 'timeline-message'} key={message.id}>
+              <div className="message-heading"><strong>{message.role === 'user' ? 'You' : 'SprintX'}</strong><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
+              <AnswerContent content={message.content} />
+              {message.role === 'assistant' && <>
+                <Sources sources={message.citations} />
+                <div className="message-actions"><button className="text-button" onClick={() => copyAnswer(message.content)} type="button">Copy</button><button className="text-button" disabled={composerBusy} onClick={() => stageAnswer(message.content, 'ask')} type="button">Refine</button><button className="text-button" disabled={composerBusy} onClick={() => stageAnswer(message.content, 'draft')} type="button">Use in Draft</button></div>
+              </>}
+            </article>) : <div className="welcome">
+              <div className="workspace-mark" aria-hidden="true">S<span>↗</span></div>
+              <p className="eyebrow">YOUR KNOWLEDGE, WITH CONTEXT</p>
+              <h2>Move the conversation forward.</h2>
+              <p className="muted">Research SprintX. Shape the right outreach.</p>
+              <div className="suggestions" aria-label="Suggested questions">{['What services does SprintX offer?', 'How should we position SprintX for a SaaS founder?', 'Which case studies support our AI expertise?'].map((prompt) => <button className="suggestion" type="button" key={prompt} disabled={composerBusy} onClick={() => { setQuestion(prompt); setMode('ask'); document.getElementById('question')?.focus(); }}>{prompt}<span aria-hidden="true">↗</span></button>)}</div>
+            </div>}
+            {(asking || drafting) && <p className="working" role="status">{asking ? 'Researching SprintX knowledge…' : 'Shaping your draft…'}</p>}
           </section>
+          <section className="composer" aria-label="Message composer">
+          <div className="composer-heading"><div className="tabs" role="group" aria-label="Assistant mode">
+            <button className={mode === 'ask' ? 'tab active' : 'tab'} aria-pressed={mode === 'ask'} disabled={composerBusy} onClick={() => setMode('ask')} type="button">Ask</button>
+            <button className={mode === 'draft' ? 'tab active' : 'tab'} aria-pressed={mode === 'draft'} disabled={composerBusy} onClick={() => setMode('draft')} type="button">Draft</button>
+          </div>{latestAssistantId ? <a className="text-button latest-link" href="#latest-message">Latest response</a> : <span className="composer-hint">Grounded in SprintX</span>}</div>
+          {feedback && <p className="feedback" role="status">{feedback}</p>}
           {mode === 'ask' ? <form className="ask-form" onSubmit={handleAsk}>
             <label htmlFor="question">Your question</label>
-            <textarea id="question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="What services does SprintX offer?" rows={5} disabled={asking} />
+            <textarea id="question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about services, positioning, or outreach…" rows={3} disabled={composerBusy} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+            <span className="composer-hint">Ctrl / ⌘ Enter to send</span>
             <button className="primary-button full" type="submit" disabled={asking || drafting || historyBusy || !conversationId || !question.trim()}>{asking ? 'Researching...' : 'Ask SprintX'}</button>
-          </form> : <form className="ask-form" onSubmit={handleDraft}>
+          </form> : <form className="ask-form" onSubmit={handleDraft}><fieldset disabled={composerBusy} className="draft-fields">
             <label htmlFor="draft-type">Message type</label>
             <select id="draft-type" value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value as DraftInput['type'] })}>
               <option value="cold-email">Cold email</option>
@@ -511,39 +530,10 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
             </div>
             <label htmlFor="context">Additional context (optional)</label>
             <textarea id="context" value={draft.context} onChange={(event) => setDraft({ ...draft, context: event.target.value })} placeholder="Mention a relevant challenge or offer..." rows={3} />
+            </fieldset>
             <button className="primary-button full" type="submit" disabled={drafting || asking || historyBusy || !conversationId || !draft.audience.trim() || !draft.objective.trim()}>{drafting ? 'Writing...' : 'Create draft'}</button>
           </form>}
-          {mode === 'ask' && result ? (
-            <section className="card answer-card">
-              <div className="answer-heading">
-                <h2>Answer</h2>
-                <button className="text-button" onClick={copyAnswer} type="button">Copy</button>
-              </div>
-              <p className="answer">{result.answer}</p>
-              {result.sources.length > 0 && (
-                <div className="sources">
-                  <h3>Sources</h3>
-                  {result.sources.map((source, index) => (
-                    <article className="source" key={`${source.path}-${index}`}>
-                      <strong>{source.title}</strong>
-                      <p>{source.snippet}</p>
-                      {source.url && <a href={source.url} target="_blank" rel="noreferrer">{source.url}</a>}
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
-          ) : mode === 'draft' && draftResult ? (
-            <section className="card answer-card">
-              <div className="answer-heading"><h2>Draft</h2><button className="text-button" onClick={() => navigator.clipboard.writeText(draftResult.draft)} type="button">Copy</button></div>
-              <p className="answer draft-text">{draftResult.draft}</p>
-              {draftResult.sources.length > 0 && <div className="sources"><h3>Grounded in</h3>{draftResult.sources.map((source, index) => <article className="source" key={`${source.path}-${index}`}><strong>{source.title}</strong><p>{source.snippet}</p></article>)}</div>}
-            </section>
-          ) : (
-            <section className="empty-state">
-              <p>{mode === 'ask' ? 'Your grounded answer and sources will appear here.' : 'Your ready-to-send draft and supporting sources will appear here.'}</p>
-            </section>
-          )}
+          </section></>}
         </>
       )}
       {error && <div className="error" role="alert">{error}</div>}
