@@ -1,12 +1,5 @@
-{
+﻿{
   "version": 2,
-  "buildCommand": "npm run build",
-  "outputDirectory": "extension/dist",
-  "functions": {
-    "api/index.ts": {
-      "includeFiles": "extension/dist/**"
-    }
-  },
   "rewrites": [
     {
       "source": "/api/(.*)",
