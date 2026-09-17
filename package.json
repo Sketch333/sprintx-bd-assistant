@@ -3,14 +3,10 @@
   "version": "0.1.0",
   "description": "SprintX BD assistant MVP knowledge-base ingestion and vector search foundation",
   "main": "dist/server.js",
-  "workspaces": [
-    "extension"
-  ],
   "scripts": {
-    "build": "npm run extension:build && node src/scripts/copy-public.js && tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/src/server.js",
-    "lint": "tsc --noEmit",
+    "start": "node dist/server.js",
     "ingest": "tsx src/scripts/ingest.ts",
     "search": "tsx src/scripts/search.ts",
     "extension:install": "npm --prefix extension install",

@@ -1,18 +1,17 @@
 import express, { NextFunction, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import { z } from 'zod';
 
 import { config } from './config';
 import { authenticateRequest, AuthenticationError, isAdmin } from './lib/auth';
-import { answerFromKnowledgeTools } from './lib/ask-service';
+import { answerFromKnowledgeTools, AskMode } from './lib/ask-service';
 import { createDraft } from './lib/draft-service';
 import { createUser, getUserApiKey, getUserById, listUsers, removeUserApiKey, setUserApiKey } from './lib/user-store';
 import { createVectorStore } from './lib/vector-store';
 import { appendConversationMessages, ConversationNotFoundError, createConversation, deleteConversation, getConversationContext, getConversationMessages, listConversations, updateConversation } from './lib/conversation-store';
 import { conversationSearchQuery } from './lib/conversation-context';
 import { inventoryRequest } from './lib/knowledge-tools';
+import { refreshCaseStudyFacts } from './lib/case-study-facts';
 
 const app = express();
 const vectorStorePromise = createVectorStore();
@@ -38,22 +37,13 @@ app.use((req, res, next) => {
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);
-  const isChromeExtensionOrigin =
-    typeof origin === 'string' && origin.startsWith('chrome-extension://');
-  const isAllowedWebOrigin =
+  const isLocalChromeExtensionOrigin =
+    process.env.NODE_ENV !== 'production' &&
+    process.env.VERCEL !== '1' &&
     typeof origin === 'string' &&
-    (origin === 'https://sprintx-bd-assistant.vercel.app' ||
-      origin.endsWith('.vercel.app') ||
-      origin.startsWith('http://localhost:') ||
-      origin.startsWith('http://127.0.0.1:'));
+    origin.startsWith('chrome-extension://');
 
-  if (
-    origin &&
-    (configuredOrigins.includes(origin) ||
-      isChromeExtensionOrigin ||
-      isAllowedWebOrigin ||
-      process.env.NODE_ENV !== 'production')
-  ) {
+  if (origin && (configuredOrigins.includes(origin) || isLocalChromeExtensionOrigin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -110,6 +100,7 @@ const searchSchema = z.object({
 const askSchema = z.object({
   question: z.string().min(1),
   limit: z.number().int().min(1).max(10).optional(),
+  mode: z.enum(['knowledge', 'facts', 'advice']).optional(),
   userId: z.string().optional(),
   conversationId: z.string().uuid().optional(),
 });
@@ -143,27 +134,7 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({ ok: true, status: 'healthy' });
 });
 
-const extensionDist = path.resolve(process.cwd(), 'extension/dist');
-const publicDist = path.resolve(process.cwd(), 'public');
-
-app.use(express.static(publicDist));
-app.use(express.static(extensionDist));
-
-app.get('/', (req: Request, res: Response) => {
-  const candidates = [
-    path.join(publicDist, 'index.html'),
-    path.join(extensionDist, 'index.html'),
-    path.resolve(__dirname, '../../public/index.html'),
-    path.resolve(__dirname, '../public/index.html'),
-    path.resolve(__dirname, '../../extension/dist/index.html'),
-  ];
-  if (!req.headers.accept?.includes('application/json')) {
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) {
-        return res.sendFile(candidate);
-      }
-    }
-  }
+app.get('/', (_req: Request, res: Response) => {
   res.json({ ok: true, service: 'sprintx-bd-assistant', health: '/health' });
 });
 
@@ -203,9 +174,28 @@ app.post('/api/kb/drive-sync', async (req: Request, res: Response) => {
       folderId: config.googleDriveFolderId,
       serviceAccountJson: config.googleServiceAccountJson,
     });
+
     return res.json({ ok: true, result });
   } catch (error) {
     return sendError(res, error, 'Unknown Google Drive sync error');
+  }
+});
+
+app.post('/api/kb/facts-sync', async (req: Request, res: Response) => {
+  try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (!isAdmin(user)) {
+      return res.status(403).json({ ok: false, error: 'Admin access required' });
+    }
+    if (!config.googleApiKey) {
+      return res.status(503).json({ ok: false, error: 'Gemini is not configured' });
+    }
+    const limit = req.body?.limit ?? 10;
+    const store = await vectorStorePromise;
+    const result = await refreshCaseStudyFacts(store, config.googleApiKey, limit);
+    return res.json({ ok: true, result });
+  } catch (error) {
+    return sendError(res, error, 'Unknown case-study facts sync error');
   }
 });
 
@@ -357,7 +347,7 @@ app.post('/api/ask', async (req: Request, res: Response) => {
       return res.status(400).json({ ok: false, error: parse.error.issues });
     }
 
-    const { question, limit = 5, userId: requestedUserId, conversationId } = parse.data;
+    const { question, limit = 5, mode = 'knowledge', userId: requestedUserId, conversationId } = parse.data;
     const authenticatedUser = await authenticateRequest(req.headers.authorization);
     const userId = requestedUserId ?? authenticatedUser?.id;
     if (config.requireAuth && (!authenticatedUser || (userId && userId !== authenticatedUser.id))) {
@@ -379,7 +369,7 @@ app.post('/api/ask', async (req: Request, res: Response) => {
       if (!inventoryRequest(question, history)) apiKey = await getUserApiKey(userId);
     }
 
-    const answer = await answerFromKnowledgeTools(question, store, apiKey, history, limit);
+    const answer = await answerFromKnowledgeTools(question, store, apiKey, history, limit, mode as AskMode);
 
     if (conversationId && authenticatedUser) {
       await appendConversationMessages(authenticatedUser.id, conversationId, [
@@ -481,17 +471,6 @@ app.get('/api/conversations/:id/messages', async (req: Request, res: Response) =
   }
 });
 
-// SPA fallback for non-API routes
-app.use((req: Request, res: Response, next: NextFunction) => {
-  if (req.method === 'GET' && !req.path.startsWith('/api/') && req.path !== '/health') {
-    const indexPath = path.join(extensionDist, 'index.html');
-    if (fs.existsSync(indexPath)) {
-      return res.sendFile(indexPath);
-    }
-  }
-  return next();
-});
-
 app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
   if (res.headersSent) {
     return next(error);
@@ -509,7 +488,7 @@ app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
 });
 
 if (require.main === module) {
-  app.listen(config.port, '0.0.0.0', () => {
-    console.log(`SprintX BD assistant API listening on http://0.0.0.0:${config.port}`);
+  app.listen(config.port, () => {
+    console.log(`SprintX BD assistant API listening on http://localhost:${config.port}`);
   });
 }

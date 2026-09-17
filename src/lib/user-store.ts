@@ -42,17 +42,7 @@ export async function ensureUserStore(): Promise<void> {
   }
 
   if (!fs.existsSync(storePath)) {
-    const defaultUsers = [
-      {
-        id: 'usr_sprintx_admin',
-        email: 'admin@sprintx.net',
-        name: 'SprintX Admin',
-        role: 'admin',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ];
-    fs.writeFileSync(storePath, JSON.stringify({ users: defaultUsers }, null, 2));
+    fs.writeFileSync(storePath, JSON.stringify({ users: [] }, null, 2));
   }
 }
 
@@ -67,19 +57,7 @@ export async function listUsers(): Promise<UserRecord[]> {
 
   await ensureUserStore();
   const payload = JSON.parse(fs.readFileSync(storePath, 'utf8') || '{"users":[]}');
-  const users = Array.isArray(payload.users) ? payload.users : [];
-  if (users.length === 0) {
-    const defaultUser: UserRecord = {
-      id: 'usr_sprintx_admin',
-      email: 'admin@sprintx.net',
-      name: 'SprintX Admin',
-      role: 'admin',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    return [defaultUser];
-  }
-  return users;
+  return Array.isArray(payload.users) ? payload.users : [];
 }
 
 export async function getUserById(userId: string): Promise<UserRecord | undefined> {

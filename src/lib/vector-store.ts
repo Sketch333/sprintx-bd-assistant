@@ -10,6 +10,8 @@ export interface VectorStore {
   listDocuments(filter?: DocumentFilter): Promise<DocumentPage>;
   findDocuments(query: string): Promise<SourceRecord[]>;
   getSource(id: string): Promise<SourceRecord | undefined>;
+  getSourceChunks(sourceId: string): Promise<KnowledgeChunk[]>;
+  patchSourceMetadata(id: string, patch: Record<string, string | number | boolean | null>): Promise<SourceRecord | undefined>;
   refreshSourceChunks(source: SourceRecord): Promise<void>;
   addSource(source: SourceRecord): Promise<void>;
   addChunk(chunk: KnowledgeChunk): Promise<boolean>;
@@ -46,6 +48,18 @@ export class MemoryVectorStore implements VectorStore {
   async getSource(id: string): Promise<SourceRecord | undefined> {
     const source = this.sources.get(id);
     return source ? { ...source, metadata: { ...source.metadata } } : undefined;
+  }
+
+  async getSourceChunks(sourceId: string): Promise<KnowledgeChunk[]> {
+    return this.chunks.filter((chunk) => chunk.sourceId === sourceId).map((chunk) => ({ ...chunk, metadata: { ...chunk.metadata } }));
+  }
+
+  async patchSourceMetadata(id: string, patch: Record<string, string | number | boolean | null>): Promise<SourceRecord | undefined> {
+    const source = this.sources.get(id);
+    if (!source) return undefined;
+    const updated = { ...source, metadata: { ...source.metadata, ...patch } };
+    this.sources.set(id, updated);
+    return { ...updated, metadata: { ...updated.metadata } };
   }
 
   async refreshSourceChunks(source: SourceRecord): Promise<void> {
@@ -188,6 +202,23 @@ export class PgVectorStore implements VectorStore {
       if ((error as { code?: string }).code === '42P01') return undefined;
       throw error;
     }
+  }
+
+  async getSourceChunks(sourceId: string): Promise<KnowledgeChunk[]> {
+    const { rows } = await this.pool.query(`SELECT id, content, source_id AS "sourceId", source_path AS "sourcePath",
+      source_type AS "sourceType", source_title AS "sourceTitle", source_url AS "sourceUrl",
+      chunk_index AS "chunkIndex", metadata FROM kb_chunks WHERE source_id=$1 ORDER BY chunk_index`, [sourceId]);
+    return rows;
+  }
+
+  async patchSourceMetadata(id: string, patch: Record<string, string | number | boolean | null>): Promise<SourceRecord | undefined> {
+    const { rows } = await this.pool.query(`UPDATE kb_sources
+      SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+      WHERE id=$1
+      RETURNING id, source_type AS "sourceType", source_title AS "sourceTitle",
+        source_path AS "sourcePath", source_url AS "sourceUrl", status,
+        updated_at AS "updatedAt", metadata`, [id, JSON.stringify(patch)]);
+    return rows[0];
   }
 
   async refreshSourceChunks(source: SourceRecord): Promise<void> {

@@ -3,7 +3,8 @@
   "name": "SprintX BD Assistant",
   "description": "Ask grounded business-development questions using SprintX knowledge.",
   "version": "0.1.0",
-  "permissions": ["identity", "storage", "sidePanel"],
+  "permissions": ["identity", "storage", "sidePanel", "activeTab", "scripting", "contextMenus", "webNavigation"],
+  "minimum_chrome_version": "116",
   "host_permissions": [
     "https://*.vercel.app/*",
     "https://*.supabase.co/*"
@@ -17,5 +18,9 @@
   },
   "side_panel": {
     "default_path": "index.html"
-  }
+  },
+  "web_accessible_resources": [{
+    "resources": ["index.html", "assets/*.js", "assets/*.css"],
+    "matches": ["http://*/*", "https://*/*"]
+  }]
 }

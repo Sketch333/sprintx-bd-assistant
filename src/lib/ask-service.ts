@@ -5,14 +5,18 @@ import { generateGeminiText } from './gemini-models';
 import { ContextMessage, conversationPrompt, conversationSearchQuery } from './conversation-context';
 import type { VectorStore } from './vector-store';
 import { inventoryRequest, inventoryAnswer, explicitDocumentQuestion, distinctiveDocumentTitle } from './knowledge-tools';
+import { parseCachedFacts } from './case-study-facts';
 
+export type AskMode = 'knowledge' | 'facts' | 'advice';
 export type AskAnswer = {
   answer: string;
   sources: Array<{ title: string; path: string; url?: string; snippet: string }>;
   usedGemini: boolean;
 };
 
-export async function answerFromKnowledgeTools(question: string, store: VectorStore, userApiKeyOverride?: string, history: ContextMessage[] = [], limit = 5): Promise<AskAnswer> {
+export async function answerFromKnowledgeTools(question: string, store: VectorStore, userApiKeyOverride?: string, history: ContextMessage[] = [], limit = 5, mode: AskMode = 'knowledge'): Promise<AskAnswer> {
+  if (mode === 'advice') return answerGeneralAdvice(question, userApiKeyOverride);
+  if (mode === 'facts') return answerCaseStudyFacts(question, store);
   const inventory = inventoryRequest(question, history);
   if (inventory) return inventoryAnswer(inventory, store);
 
@@ -23,6 +27,45 @@ export async function answerFromKnowledgeTools(question: string, store: VectorSt
     const previous = history.filter((message) => message.role === 'user').at(-1);
     if (previous && !inventoryRequest(previous.content)) named = await lookup(previous.content);
   }
+
+  async function answerCaseStudyFacts(question: string, store: VectorStore): Promise<AskAnswer> {
+    const matches = await store.findDocuments(question);
+    const documents = matches.filter((source) => parseCachedFacts(source.metadata?.caseStudyFacts)?.status === 'current');
+    if (!documents.length) {
+      return {
+        answer: 'No current structured facts are available for that case study. An administrator must run the case-study facts refresh after the document has been indexed.',
+        sources: [],
+        usedGemini: false,
+      };
+    }
+    const lines = documents.flatMap((source) => {
+      const facts = parseCachedFacts(source.metadata?.caseStudyFacts);
+      if (!facts) return [];
+      const technologies = facts.technologies.length
+        ? facts.technologies.map((technology) => `- ${technology.name} — "${technology.evidenceQuote}" [${source.sourceTitle}]`)
+        : ['- No explicitly stated technologies were extracted.'];
+      return [`**${facts.caseStudyName}**`, ...technologies];
+    });
+    return {
+      answer: `Structured case-study facts (from indexed evidence):\n\n${lines.join('\n')}`,
+      sources: documents.map((source) => ({ title: source.sourceTitle, path: source.sourcePath, url: source.sourceUrl, snippet: parseCachedFacts(source.metadata?.caseStudyFacts)?.technologies[0]?.evidenceQuote ?? 'Structured facts' })),
+      usedGemini: false,
+    };
+  }
+
+  async function answerGeneralAdvice(question: string, userApiKeyOverride?: string): Promise<AskAnswer> {
+    const apiKey = userApiKeyOverride || config.testGeminiApiKey || config.googleApiKey;
+    const fallback = `General advice (not SprintX evidence): Start by clarifying the target audience, desired outcome, constraints, and success metric. Then propose a small testable next step and define how you will measure it.\n\nQuestion: ${question}`;
+    if (!apiKey) return { answer: fallback, sources: [], usedGemini: false };
+    try {
+      const text = await generateGeminiText(`Give practical general business-development advice for this question. Do not claim knowledge of SprintX, its clients, or its case studies. Begin with "General advice (not SprintX evidence):".\n\nQuestion: ${question}`, undefined, apiKey);
+      return { answer: sanitizeAnswer(text || fallback), sources: [], usedGemini: true };
+    } catch (error) {
+      console.warn('General advice generation failed, using fallback:', error);
+      return { answer: fallback, sources: [], usedGemini: false };
+    }
+  }
+
   if (named.length > 10) return {
     answer: 'Several indexed documents match that title. Please specify the full filename or a more distinctive project name so I can select the right evidence.',
     sources: [], usedGemini: false,
@@ -121,7 +164,10 @@ function fallbackAnswer(question: string, results: SearchResult[]): string {
 }
 
 function sanitizeAnswer(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
+  return text
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
+    .trim();
 }
 
 function hasMeaningfulOverlap(question: string, content: string): boolean {
