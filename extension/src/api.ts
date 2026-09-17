@@ -1,4 +1,5 @@
 import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftResponse, ProfileResponse, ProvisionedUser } from './types';
+import type { AskMode } from './types';
 import type { DriveSyncResult } from './drive-sync';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '');
@@ -29,8 +30,8 @@ async function postJson<T>(path: string, body: unknown, accessToken: string, sig
   return parseResponse<T>(response);
 }
 
-export function askAssistant(question: string, accessToken: string, conversationId?: string, signal?: AbortSignal): Promise<AskResponse> {
-  return postJson<AskResponse>('/api/ask', { question, limit: 5, conversationId }, accessToken, signal);
+export function askAssistant(question: string, accessToken: string, conversationId?: string, signal?: AbortSignal, mode: AskMode = 'knowledge'): Promise<AskResponse> {
+  return postJson<AskResponse>('/api/ask', { question, limit: 5, conversationId, mode }, accessToken, signal);
 }
 
 export function draftMessage(input: DraftInput, accessToken: string, conversationId?: string, signal?: AbortSignal): Promise<DraftResponse> {
@@ -72,6 +73,10 @@ export function createUser(accessToken: string, input: { email: string; name: st
 export function syncGoogleDrive(accessToken: string, signal?: AbortSignal): Promise<{ ok: true; result: DriveSyncResult }> {
   const timeout = AbortSignal.timeout(210000);
   return postJson('/api/kb/drive-sync', {}, accessToken, signal ? AbortSignal.any([signal, timeout]) : timeout);
+}
+
+export function syncCaseStudyFacts(accessToken: string, signal?: AbortSignal): Promise<{ ok: true; result: { processed: number; refreshed: number; unchanged: number; failed: number; failures: string[] } }> {
+  return postJson('/api/kb/facts-sync', { limit: 10 }, accessToken, signal ? AbortSignal.any([signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000));
 }
 
 export function crawlWebsites(accessToken: string): Promise<{ ok: true; result: { crawled: number; chunks: number; sources: number } }> {

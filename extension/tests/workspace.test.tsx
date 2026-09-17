@@ -32,6 +32,28 @@ test('answer preserves multiline and citation text without parsing raw HTML', ()
   expect(document.querySelector('.answer')?.textContent).toBe('Evidence [1]\n\n<img src=x onerror=alert(1)>');
   expect(document.querySelector('img')).toBeNull();
 });
+test('answer renders safe Markdown structure instead of exposing formatting markers', () => {
+  render(<AnswerContent content={'### Scoping Questions\n\n1. **Architecture:** Use a *multi-agent* design.\n2. **Data:** Keep [approved facts](https://example.test/facts).'} />);
+  expect(screen.getByRole('heading', { name: 'Scoping Questions' })).toBeTruthy();
+  expect(screen.getByText('Architecture:')).toBeTruthy();
+  expect(screen.getByText('multi-agent')).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'approved facts' }).getAttribute('href')).toBe('https://example.test/facts');
+  expect(document.querySelector('.answer')?.textContent).not.toContain('**');
+  expect(document.querySelector('.answer')?.textContent).not.toContain('*multi-agent*');
+});
+test('answer separates compact headings and list markers returned on one line', () => {
+  render(<AnswerContent content={'Here are questions: ### Scoping Questions 1. **Architecture:** Use a coordinator. * Will it remember orders? [Source 1] 2. **Data:** Use approved facts.'} />);
+  expect(screen.getByRole('heading', { name: 'Scoping Questions' })).toBeTruthy();
+  expect(screen.getAllByRole('listitem').length).toBeGreaterThanOrEqual(1);
+  expect(screen.getByText('Architecture:')).toBeTruthy();
+});
+test('answer separates compact bullets before bold service categories and items', () => {
+  render(<AnswerContent content={'Services include: * **Consulting** * Business Consulting [Source 1] * HR Consulting [Source 1] * **Operations** * Project Management [Source 2]'} />);
+  expect(screen.getAllByRole('list')).toHaveLength(1);
+  expect(screen.getByText('Consulting')).toBeTruthy();
+  expect(screen.getByText('Business Consulting [Source 1]')).toBeTruthy();
+  expect(screen.getByText('Project Management [Source 2]')).toBeTruthy();
+});
 test('auto tracks system changes while a saved explicit theme overrides them', () => {
   const listeners = new Set<() => void>();
   const media = { matches: false, addEventListener: (_name: string, listener: () => void) => listeners.add(listener), removeEventListener: (_name: string, listener: () => void) => listeners.delete(listener) };

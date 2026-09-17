@@ -70,18 +70,10 @@ async function background(sharedStore?: any) {
   return { handlers, chrome, store, message };
 }
 
-test('toolbar HTTP invocation injects only active tab; restricted and late failures open trusted window', async () => {
+test('native toolbar behavior delegates directly to Chrome Side Panel', async () => {
   const bg = await background();
-  expect(typeof bg.handlers.action).toBe('function');
-  await bg.handlers.action({ id: 7, url: 'https://example.test' });
-  expect(bg.chrome.scripting.executeScript.mock.calls[0][0]).toEqual({ target: { tabId: 7, frameIds: [0] }, files: ['overlay.js'] });
-  expect(bg.store['overlay:7'].topDocumentId).toBe('top-document');
-  await bg.handlers.action({ id: 8, url: 'chrome://settings' });
-  expect(bg.chrome.windows.create).toHaveBeenCalledWith({ url: 'chrome-extension://unit/index.html?fallback=1', type: 'popup', width: 460, height: 720 });
-  bg.chrome.scripting.executeScript.mockRejectedValueOnce(new Error('navigation race'));
-  await bg.handlers.action({ id: 9, url: 'https://example.test' });
-  expect(bg.chrome.windows.create).toHaveBeenCalledTimes(2);
-  expect(bg.chrome.sidePanel.open).not.toHaveBeenCalled();
+  expect(bg.chrome.sidePanel.setPanelBehavior).toHaveBeenCalledWith({ openPanelOnActionClick: true });
+  expect(bg.handlers.action).toBeUndefined();
   bg.handlers.menu({ menuItemId: 'sprintx-sidebar' }, { id: 7 });
   expect(bg.chrome.sidePanel.open).toHaveBeenCalledWith({ tabId: 7 });
 });
@@ -98,79 +90,6 @@ test('private presentation relay controls shell without accepting page messages 
   expect(shell.dataset.theme).toBe('light');
   (host.root.querySelector('[aria-label="Close SprintX"]') as HTMLElement).click();
   expect(host.chrome.runtime.onMessage.removeListener).toHaveBeenCalled();
-});
-
-test('authorized theme relay survives worker restart and reinvocation leaves nonce intact', async () => {
-  const bg = await background(); await bg.handlers.action({ id: 7, url: 'https://example.test' });
-  const sender = { id: 'unit', tab: { id: 7 }, frameId: 2, documentId: 'frame-document', url: 'chrome-extension://unit/index.html?overlay=secure-nonce' };
-  await bg.message({ type: 'sprintx:authorize', nonce: 'secure-nonce' }, sender);
-  bg.store['overlay:7'].expiresAt = 0;
-  const restarted = await background(bg.store);
-  expect(await restarted.message({ type: 'sprintx:apply-appearance', theme: 'dark', accent: '#22aabb' }, sender)).toEqual({ ok: true });
-  expect(restarted.chrome.tabs.sendMessage).toHaveBeenCalledWith(7, { type: 'sprintx:apply-appearance', theme: 'dark', accent: '#22aabb' }, { documentId: 'top-document' });
-  expect(await restarted.message({ type: 'sprintx:apply-appearance', theme: 'dark', accent: '#22aabb', token: 'secret' }, sender)).toEqual({ ok: false });
-  expect(await restarted.message({ type: 'sprintx:apply-appearance', theme: 'dark', accent: ['#22aabb'] }, sender)).toEqual({ ok: false });
-  expect(await restarted.message({ type: 'sprintx:appearance', theme: 'dark', accent: 'url(secret)' }, { id: 'unit', tab: { id: 7 }, frameId: 0, documentId: 'top-document', url: 'https://example.test' })).toEqual({ ok: false });
-  restarted.chrome.scripting.executeScript.mockResolvedValueOnce([{ documentId: 'top-document' }]).mockResolvedValueOnce([{ result: { existing: true } }]);
-  await restarted.handlers.action({ id: 7, url: 'https://example.test' });
-  expect(restarted.store['overlay:7'].frameDocumentId).toBe('frame-document');
-});
-
-test('overlapping first clicks share the invocation queue and issue only one matching nonce', async () => {
-  const bg = await background();
-  let release!: (result: any) => void;
-  bg.chrome.scripting.executeScript.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
-  bg.chrome.scripting.executeScript.mockResolvedValueOnce([{ result: { existing: false, appearance: { theme: 'light', accent: null } } }]).mockResolvedValueOnce([{ documentId: 'top-document' }]).mockResolvedValueOnce([{ documentId: 'top-document' }]).mockResolvedValueOnce([{ result: { existing: true } }]);
-  const first = bg.handlers.action({ id: 7, url: 'https://example.test' });
-  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
-  const second = bg.handlers.action({ id: 7, url: 'https://example.test' });
-  await Promise.resolve(); await Promise.resolve();
-  expect(bg.chrome.scripting.executeScript).toHaveBeenCalledTimes(1);
-  release([{ documentId: 'top-document' }]);
-  await first;
-  // The second invocation must discover/toggle the already mounted host, not issue again.
-  await second;
-  const starts = bg.chrome.scripting.executeScript.mock.calls.filter(([call]: any) => call.args);
-  expect(starts).toHaveLength(1);
-  expect(starts[0][0].args[0]).toBe(bg.store['overlay:7'].nonce);
-});
-
-test('failed invocation cleanup does not delete a newer record or unrelated existing frame', async () => {
-  const bg = await background();
-  await bg.handlers.action({ id: 7, url: 'https://example.test' });
-  const retained = bg.store['overlay:7'];
-  bg.chrome.scripting.executeScript.mockRejectedValueOnce(new Error('early injection failed'));
-  await bg.handlers.action({ id: 7, url: 'https://example.test' });
-  expect(bg.store['overlay:7']).toEqual(retained);
-  bg.chrome.scripting.executeScript.mockResolvedValueOnce([{ documentId: 'top-document' }]).mockResolvedValueOnce([{ result: { existing: false, appearance: { theme: 'dark', accent: '#22aabb' } } }]).mockImplementationOnce(async () => {
-    bg.store['overlay:7'] = { nonce: 'newer', topDocumentId: 'new-top', expiresAt: Date.now() + 30000 };
-    throw new Error('late failure after replacement');
-  });
-  await bg.handlers.action({ id: 7, url: 'https://example.test' });
-  expect(bg.store['overlay:7'].nonce).toBe('newer');
-  bg.chrome.scripting.executeScript.mockResolvedValueOnce([{ documentId: 'top-document' }]).mockResolvedValueOnce([{ result: { existing: false, appearance: { theme: 'light', accent: null } } }]).mockImplementationOnce(async () => {
-    bg.store['overlay:7'] = { ...bg.store['overlay:7'], topDocumentId: 'replacement-document' };
-    throw new Error('same nonce, different document');
-  });
-  await bg.handlers.action({ id: 7, url: 'https://example.test' });
-  expect(bg.store['overlay:7'].topDocumentId).toBe('replacement-document');
-  bg.chrome.scripting.executeScript.mockResolvedValueOnce([{ documentId: 'top-document' }]).mockResolvedValueOnce([{ result: { existing: false, appearance: { theme: 'light', accent: null } } }]).mockRejectedValueOnce(new Error('own issued frame failed'));
-  await bg.handlers.action({ id: 7, url: 'https://example.test' });
-  expect(bg.store['overlay:7']).toBeUndefined();
-});
-
-test('sampled appearance is stored before synchronous iframe invocation and auth is not deadlocked', async () => {
-  const bg = await background();
-  let authorization: Promise<any> | undefined;
-  bg.chrome.scripting.executeScript.mockResolvedValueOnce([{ documentId: 'top-document' }]).mockResolvedValueOnce([{ result: { existing: false, appearance: { theme: 'dark', accent: '#22aabb' } } }]).mockImplementationOnce(async (call: any) => {
-    expect(bg.store['overlay:7'].appearance).toEqual({ theme: 'dark', accent: '#22aabb' });
-    const sender = { id: 'unit', tab: { id: 7 }, frameId: 2, documentId: 'frame-document', url: `chrome-extension://unit/index.html?overlay=${call.args[0]}` };
-    // Loading a frame initiates runtime authorization; executeScript must not await it.
-    authorization = bg.message({ type: 'sprintx:authorize', nonce: call.args[0] }, sender);
-    return [{ documentId: 'top-document' }];
-  });
-  await bg.handlers.action({ id: 7, url: 'https://example.test' });
-  expect(await authorization).toEqual({ authorized: true, appearance: { theme: 'dark', accent: '#22aabb' } });
 });
 
 test('real isolated sampling returns validated presentation only and does not send a late runtime sample', () => {
@@ -214,36 +133,4 @@ test('drag captures initiating pointer and releases on up, lost capture and clos
   (host.root.querySelector('[aria-label="Close SprintX"]') as HTMLElement).click();
   expect(header.releasePointerCapture).toHaveBeenCalledWith(44);
   expect(captured.size).toBe(0);
-});
-
-test('authorization binds nonce to tab, extension child frame and live top document; consumed nonce rejects replay', async () => {
-  const bg = await background(); await bg.handlers.action({ id: 7, url: 'https://example.test' });
-  const sender = { id: 'unit', tab: { id: 7 }, frameId: 2, documentId: 'frame-document', url: 'chrome-extension://unit/index.html?overlay=secure-nonce' };
-  const request = { type: 'sprintx:authorize', nonce: 'secure-nonce' };
-  expect(await bg.message(request, { ...sender, id: 'evil' })).toEqual({ authorized: false });
-  expect(await bg.message(request, { ...sender, frameId: 0 })).toEqual({ authorized: false });
-  expect(await bg.message(request, { ...sender, tab: { id: 8 } })).toEqual({ authorized: false });
-  expect(await bg.message(request, sender)).toEqual({ authorized: true, appearance: { theme: 'light', accent: null } });
-  expect(await bg.message(request, { ...sender, documentId: 'replayed' })).toEqual({ authorized: false });
-  expect(await bg.message({ type: 'sprintx:trusted-window' }, { ...sender, documentId: 'replayed' })).toEqual({ ok: false });
-});
-
-test('expired nonce and navigated parent document deny authorization', async () => {
-  const bg = await background(); await bg.handlers.action({ id: 7, url: 'https://example.test' });
-  const sender = { id: 'unit', tab: { id: 7 }, frameId: 2, documentId: 'frame-document', url: 'chrome-extension://unit/index.html?overlay=secure-nonce' };
-  bg.store['overlay:7'].expiresAt = 0;
-  expect(await bg.message({ type: 'sprintx:authorize', nonce: 'secure-nonce' }, sender)).toEqual({ authorized: false });
-  bg.store['overlay:7'].expiresAt = Date.now() + 30000;
-  bg.chrome.webNavigation.getFrame.mockResolvedValue({ documentId: 'new-top', parentFrameId: 0, url: sender.url });
-  expect(await bg.message({ type: 'sprintx:authorize', nonce: 'secure-nonce' }, sender)).toEqual({ authorized: false });
-});
-
-test('stale detached host cannot revoke a replacement overlay authorization', async () => {
-  const bg = await background(); await bg.handlers.action({ id: 7, url: 'https://example.test' });
-  bg.store['overlay:7'].nonce = 'replacement-nonce';
-  const sender = { id: 'unit', tab: { id: 7 }, frameId: 0, documentId: 'top-document', url: 'https://example.test' };
-  expect(await bg.message({ type: 'sprintx:close', nonce: 'secure-nonce' }, sender)).toEqual({ ok: false });
-  expect(bg.store['overlay:7'].nonce).toBe('replacement-nonce');
-  expect(await bg.message({ type: 'sprintx:close', nonce: 'replacement-nonce' }, sender)).toEqual({ ok: true });
-  expect(bg.store['overlay:7']).toBeUndefined();
 });

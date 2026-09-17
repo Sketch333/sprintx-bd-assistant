@@ -114,7 +114,7 @@ test('thread switching is blocked while an answer is in flight', async () => {
   render(<App />); await screen.findByText('Conversation: Latest');
   fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Services?' } });
   fireEvent.click(screen.getByText('Ask SprintX')); await waitFor(() => expect(fixtures.ask).toHaveBeenCalled());
-  expect((screen.getByText('New') as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 test('startup restores the latest transcript', async () => {

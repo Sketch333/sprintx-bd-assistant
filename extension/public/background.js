@@ -1,6 +1,6 @@
 // No automatic page access: only the toolbar gesture injects into its active tab.
 // session storage remains extension-only (never enable TRUSTED_AND_UNTRUSTED_CONTEXTS).
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => undefined);
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
 const keyFor = (tabId) => `overlay:${tabId}`;
 const queues = new Map();
 const serial = (tabId, action) => {
@@ -55,38 +55,6 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   serial(sender.tab?.id ?? 'trusted', () => handleMessage(message, sender)).then(respond, () => respond({ authorized: false, ok: false }));
   return true;
 });
-chrome.action.onClicked.addListener((tab) => serial(tab.id ?? 'trusted', async () => {
-  if (!Number.isInteger(tab.id) || !/^https?:\/\//i.test(tab.url ?? '')) { await trustedWindow(); return; }
-  let issued = null;
-  try {
-    const target = { tabId: tab.id, frameIds: [0] };
-    const injected = await chrome.scripting.executeScript({ target, files: ['overlay.js'] });
-    const topDocumentId = injected[0]?.documentId;
-    if (!topDocumentId) throw new Error('No document identity for overlay');
-    const documentTarget = { tabId: tab.id, documentIds: [topDocumentId] };
-    // This synchronous isolated-world probe returns colors, not a runtime promise.
-    // Waiting on a message from inside this shared tab queue would deadlock.
-    const probe = await chrome.scripting.executeScript({ target: documentTarget, func: () => {
-      if (globalThis.__sprintxOverlay.toggleExisting()) return { existing: true };
-      return { existing: false, appearance: globalThis.__sprintxOverlay.sampleAppearance() };
-    } });
-    const presentation = probe[0]?.result;
-    if (presentation?.existing === true) return;
-    if (presentation?.existing !== false || !validAppearance(presentation.appearance)) throw new Error('Invalid page appearance');
-    const nonce = crypto.randomUUID();
-    issued = { nonce, topDocumentId, expiresAt: Date.now() + 30000, appearance: presentation.appearance };
-    await chrome.storage.session.set({ [keyFor(tab.id)]: issued });
-    // Target the exact document, not a potentially navigated replacement tab.
-    // invoke is synchronous; the frame's runtime authorization waits until this queue releases.
-    await chrome.scripting.executeScript({ target: documentTarget, func: (issued) => globalThis.__sprintxOverlay.invoke(issued), args: [nonce] });
-  } catch {
-    if (issued) {
-      const current = (await chrome.storage.session.get(keyFor(tab.id)))[keyFor(tab.id)];
-      if (current?.nonce === issued.nonce && current?.topDocumentId === issued.topDocumentId) await chrome.storage.session.remove(keyFor(tab.id));
-    }
-    await trustedWindow();
-  }
-}));
 chrome.runtime.onInstalled.addListener(() => chrome.contextMenus.create({ id: 'sprintx-sidebar', title: 'Open SprintX in sidebar', contexts: ['action'] }));
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== 'sprintx-sidebar' || !Number.isInteger(tab?.id)) return;

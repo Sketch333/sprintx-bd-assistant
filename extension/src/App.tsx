@@ -1,12 +1,12 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { ApiError, askAssistant, crawlWebsites, createConversation, createUser, deleteConversation, draftMessage, getConversationMessages, getProfile, listConversations, listUsers, removeGeminiKey, renameConversation, setGeminiKey, syncGoogleDrive } from './api';
+import { ApiError, askAssistant, crawlWebsites, createConversation, createUser, deleteConversation, draftMessage, getConversationMessages, getProfile, listConversations, listUsers, removeGeminiKey, renameConversation, setGeminiKey, syncCaseStudyFacts, syncGoogleDrive } from './api';
 import { authorizePresentation, isFramedPresentation, requestTrustedWindow } from './appearance';
 import { continueDriveSync } from './drive-sync';
 import { AnswerContent } from './components/AnswerContent';
 import { Sources } from './components/Sources';
 import { AppearanceSettings, useAppearance } from './components/AppearanceSettings';
-import type { Conversation, ConversationMessage, DraftInput, ProvisionedUser } from './types';
+import type { AskMode, Conversation, ConversationMessage, DraftInput, ProvisionedUser } from './types';
 
 export function App() {
   const [auth, setAuth] = useState<typeof import('./supabase') | null>(null);
@@ -63,6 +63,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [question, setQuestion] = useState('');
   const [mode, setMode] = useState<'ask' | 'draft'>('ask');
+  const [askMode, setAskMode] = useState<AskMode>('knowledge');
   const [draft, setDraft] = useState<DraftInput>({
     type: 'cold-email',
     audience: '',
@@ -348,6 +349,22 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     } finally {
       setAdminBusy(false);
     }
+
+  }
+
+  async function handleFactsSync() {
+    if (!session?.access_token || adminBusy) return;
+    setAdminBusy(true);
+    setSyncMessage('Refreshing structured case-study facts…');
+    setError('');
+    try {
+      const result = await syncCaseStudyFacts(session.access_token);
+      setSyncMessage(`Facts refresh complete: ${result.result.refreshed} refreshed, ${result.result.unchanged} unchanged, ${result.result.failed} failed.`);
+    } catch (syncError) {
+      setError(syncError instanceof Error ? syncError.message : 'Case-study facts refresh failed.');
+    } finally {
+      setAdminBusy(false);
+    }
   }
 
   async function handleAsk(event: FormEvent) {
@@ -357,7 +374,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     setError('');
     setAsking(true);
     try {
-      const response = await askAssistant(trimmedQuestion, session.access_token, conversationId);
+      const response = await askAssistant(trimmedQuestion, session.access_token, conversationId, undefined, askMode);
       setQuestion('');
       setConversationMessages((current) => [...current,
         { id: `local-user-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'user', content: trimmedQuestion, citations: [], createdAt: new Date().toISOString() },
@@ -413,6 +430,10 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     setFeedback(`Added ${context.length.toLocaleString()} characters${content.length > 2000 ? ' (limited to 2,000 characters)' : ''} to ${target === 'ask' ? 'your question' : 'draft context'}. Review and edit before sending.`);
     requestAnimationFrame(() => document.getElementById(target === 'ask' ? 'question' : 'context')?.focus());
   }
+  function focusComposer(nextMode: 'ask' | 'draft') {
+    setMode(nextMode);
+    requestAnimationFrame(() => document.getElementById(nextMode === 'ask' ? 'question' : 'audience')?.focus());
+  }
 
 
   return (
@@ -450,6 +471,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
             </form>
             <div className="admin-actions">
               <button className="primary-button" type="button" onClick={handleDriveSync} disabled={adminBusy}>{adminBusy ? 'Working...' : 'Sync Google Drive'}</button>
+              <button className="secondary-button" type="button" onClick={handleFactsSync} disabled={adminBusy}>{adminBusy ? 'Working...' : 'Refresh case-study facts'}</button>
               <button className="secondary-button" type="button" onClick={handleWebsiteCrawl} disabled={adminBusy}>{adminBusy ? 'Working...' : 'Crawl websites'}</button>
             </div>
             {syncMessage && <p className="key-status">{syncMessage}</p>}
@@ -471,7 +493,12 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
             <button className="text-button" type="button" disabled={secondaryBusy} onClick={() => toggleSecondary('history')} aria-expanded={historyOpen}>
               Conversation: {conversationTitle}
             </button>
-            <button className="text-button" type="button" onClick={handleNewConversation} disabled={historyBusy || asking || drafting || !conversationId}>New</button>
+            <div className="quick-actions" aria-label="Quick navigation">
+              <button className="icon-button" type="button" aria-label="Ask a question" title="Ask a question" onClick={() => focusComposer('ask')} disabled={composerBusy}>＋</button>
+              <button className="icon-button" type="button" aria-label="Open conversation history" title="Conversation history" onClick={() => toggleSecondary('history')} aria-expanded={historyOpen} disabled={secondaryBusy}>☷</button>
+              <button className="icon-button" type="button" aria-label="New conversation" title="New conversation" onClick={handleNewConversation} disabled={historyBusy || asking || drafting || !conversationId}>✦<span className="sr-only">New</span></button>
+              {latestAssistantId && <a className="icon-button latest-icon" href="#latest-message" aria-label="Jump to latest response" title="Latest response">↓</a>}
+            </div>
           </div>
           {historyOpen && <section className="card history-card">
             <div className="answer-heading"><h2>Conversation history</h2><button className="text-button" type="button" disabled={secondaryBusy} onClick={() => setHistoryOpen(false)}>Close</button></div>
@@ -508,10 +535,18 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
           </div>{latestAssistantId ? <a className="text-button latest-link" href="#latest-message">Latest response</a> : <span className="composer-hint">Grounded in SprintX</span>}</div>
           {feedback && <p className="feedback" role="status">{feedback}</p>}
           {mode === 'ask' ? <form className="ask-form" onSubmit={handleAsk}>
-            <label htmlFor="question">Your question</label>
-            <textarea id="question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about services, positioning, or outreach…" rows={3} disabled={composerBusy} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
-            <span className="composer-hint">Ctrl / ⌘ Enter to send</span>
-            <button className="primary-button full" type="submit" disabled={asking || drafting || historyBusy || !conversationId || !question.trim()}>{asking ? 'Researching...' : 'Ask SprintX'}</button>
+            <label className="sr-only" htmlFor="question">Your question</label>
+            <textarea id="question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about services, positioning, or outreach…" rows={2} disabled={composerBusy} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+            <label className="sr-only" htmlFor="ask-mode">Answer mode</label>
+            <select className="compact-select" id="ask-mode" value={askMode} onChange={(event) => setAskMode(event.target.value as AskMode)} disabled={composerBusy}>
+              <option value="knowledge">Grounded knowledge</option>
+              <option value="facts">Structured case-study facts</option>
+              <option value="advice">General advice (not SprintX evidence)</option>
+            </select>
+            <div className="composer-controls">
+              <span className="composer-hint">Ctrl / ⌘ Enter</span>
+              <button className="primary-button composer-submit" type="submit" disabled={asking || drafting || historyBusy || !conversationId || !question.trim()}>{asking ? 'Working…' : 'Ask SprintX'}</button>
+            </div>
           </form> : <form className="ask-form" onSubmit={handleDraft}><fieldset disabled={composerBusy} className="draft-fields">
             <label htmlFor="draft-type">Message type</label>
             <select id="draft-type" value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value as DraftInput['type'] })}>

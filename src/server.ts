@@ -4,13 +4,14 @@ import { z } from 'zod';
 
 import { config } from './config';
 import { authenticateRequest, AuthenticationError, isAdmin } from './lib/auth';
-import { answerFromKnowledgeTools } from './lib/ask-service';
+import { answerFromKnowledgeTools, AskMode } from './lib/ask-service';
 import { createDraft } from './lib/draft-service';
 import { createUser, getUserApiKey, getUserById, listUsers, removeUserApiKey, setUserApiKey } from './lib/user-store';
 import { createVectorStore } from './lib/vector-store';
 import { appendConversationMessages, ConversationNotFoundError, createConversation, deleteConversation, getConversationContext, getConversationMessages, listConversations, updateConversation } from './lib/conversation-store';
 import { conversationSearchQuery } from './lib/conversation-context';
 import { inventoryRequest } from './lib/knowledge-tools';
+import { refreshCaseStudyFacts } from './lib/case-study-facts';
 
 const app = express();
 const vectorStorePromise = createVectorStore();
@@ -99,6 +100,7 @@ const searchSchema = z.object({
 const askSchema = z.object({
   question: z.string().min(1),
   limit: z.number().int().min(1).max(10).optional(),
+  mode: z.enum(['knowledge', 'facts', 'advice']).optional(),
   userId: z.string().optional(),
   conversationId: z.string().uuid().optional(),
 });
@@ -172,9 +174,28 @@ app.post('/api/kb/drive-sync', async (req: Request, res: Response) => {
       folderId: config.googleDriveFolderId,
       serviceAccountJson: config.googleServiceAccountJson,
     });
+
     return res.json({ ok: true, result });
   } catch (error) {
     return sendError(res, error, 'Unknown Google Drive sync error');
+  }
+});
+
+app.post('/api/kb/facts-sync', async (req: Request, res: Response) => {
+  try {
+    const user = await authenticateRequest(req.headers.authorization);
+    if (!isAdmin(user)) {
+      return res.status(403).json({ ok: false, error: 'Admin access required' });
+    }
+    if (!config.googleApiKey) {
+      return res.status(503).json({ ok: false, error: 'Gemini is not configured' });
+    }
+    const limit = req.body?.limit ?? 10;
+    const store = await vectorStorePromise;
+    const result = await refreshCaseStudyFacts(store, config.googleApiKey, limit);
+    return res.json({ ok: true, result });
+  } catch (error) {
+    return sendError(res, error, 'Unknown case-study facts sync error');
   }
 });
 
@@ -326,7 +347,7 @@ app.post('/api/ask', async (req: Request, res: Response) => {
       return res.status(400).json({ ok: false, error: parse.error.issues });
     }
 
-    const { question, limit = 5, userId: requestedUserId, conversationId } = parse.data;
+    const { question, limit = 5, mode = 'knowledge', userId: requestedUserId, conversationId } = parse.data;
     const authenticatedUser = await authenticateRequest(req.headers.authorization);
     const userId = requestedUserId ?? authenticatedUser?.id;
     if (config.requireAuth && (!authenticatedUser || (userId && userId !== authenticatedUser.id))) {
@@ -348,7 +369,7 @@ app.post('/api/ask', async (req: Request, res: Response) => {
       if (!inventoryRequest(question, history)) apiKey = await getUserApiKey(userId);
     }
 
-    const answer = await answerFromKnowledgeTools(question, store, apiKey, history, limit);
+    const answer = await answerFromKnowledgeTools(question, store, apiKey, history, limit, mode as AskMode);
 
     if (conversationId && authenticatedUser) {
       await appendConversationMessages(authenticatedUser.id, conversationId, [
