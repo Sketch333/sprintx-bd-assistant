@@ -1,9 +1,20 @@
 {
   "version": 2,
-  "routes": [
+  "buildCommand": "npm run build",
+  "outputDirectory": "extension/dist",
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "extension/dist/**"
+    }
+  },
+  "rewrites": [
     {
-      "src": "/(.*)",
-      "dest": "api/index.ts"
+      "source": "/api/(.*)",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/index.ts"
     }
   ]
 }
