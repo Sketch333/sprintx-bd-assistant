@@ -1,8 +1,17 @@
 import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftResponse, ProfileResponse, ProvisionedUser } from './types';
-import type { AskMode } from './types';
 import type { DriveSyncResult } from './drive-sync';
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '');
+const configuredApiUrl = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '');
+
+function resolveApiBaseUrl(): string {
+  if (configuredApiUrl) return configuredApiUrl;
+  if (typeof window !== 'undefined' && window.location?.protocol === 'chrome-extension:') {
+    return 'https://sprintx-bd-assistant.vercel.app';
+  }
+  return '';
+}
+
+const apiBaseUrl = resolveApiBaseUrl();
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -20,8 +29,8 @@ function readError(payload: unknown): string {
 }
 
 async function postJson<T>(path: string, body: unknown, accessToken: string, signal?: AbortSignal): Promise<T> {
-  if (!apiBaseUrl) throw new ApiError('The API URL is not configured for this extension build.', 0);
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const url = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
     body: JSON.stringify(body),
@@ -30,8 +39,8 @@ async function postJson<T>(path: string, body: unknown, accessToken: string, sig
   return parseResponse<T>(response);
 }
 
-export function askAssistant(question: string, accessToken: string, conversationId?: string, signal?: AbortSignal, mode: AskMode = 'knowledge'): Promise<AskResponse> {
-  return postJson<AskResponse>('/api/ask', { question, limit: 5, conversationId, mode }, accessToken, signal);
+export function askAssistant(question: string, accessToken: string, conversationId?: string, signal?: AbortSignal): Promise<AskResponse> {
+  return postJson<AskResponse>('/api/ask', { question, limit: 5, conversationId }, accessToken, signal);
 }
 
 export function draftMessage(input: DraftInput, accessToken: string, conversationId?: string, signal?: AbortSignal): Promise<DraftResponse> {
@@ -75,10 +84,6 @@ export function syncGoogleDrive(accessToken: string, signal?: AbortSignal): Prom
   return postJson('/api/kb/drive-sync', {}, accessToken, signal ? AbortSignal.any([signal, timeout]) : timeout);
 }
 
-export function syncCaseStudyFacts(accessToken: string, signal?: AbortSignal): Promise<{ ok: true; result: { processed: number; refreshed: number; unchanged: number; failed: number; failures: string[] } }> {
-  return postJson('/api/kb/facts-sync', { limit: 10 }, accessToken, signal ? AbortSignal.any([signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000));
-}
-
 export function crawlWebsites(accessToken: string): Promise<{ ok: true; result: { crawled: number; chunks: number; sources: number } }> {
   return postJson('/api/kb/site-sync', {}, accessToken);
 }
@@ -92,13 +97,13 @@ export function removeGeminiKey(accessToken: string): Promise<{ ok: true; gemini
 }
 
 async function getJson<T>(path: string, accessToken: string): Promise<T> {
-  if (!apiBaseUrl) throw new ApiError('The API URL is not configured for this extension build.', 0);
-  return parseResponse<T>(await fetch(`${apiBaseUrl}${path}`, { headers: { Authorization: `Bearer ${accessToken}` } }));
+  const url = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+  return parseResponse<T>(await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }));
 }
 
 async function patchJson<T>(path: string, body: unknown, accessToken: string): Promise<T> {
-  if (!apiBaseUrl) throw new ApiError('The API URL is not configured for this extension build.', 0);
-  return parseResponse<T>(await fetch(`${apiBaseUrl}${path}`, {
+  const url = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+  return parseResponse<T>(await fetch(url, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
     body: JSON.stringify(body),
@@ -106,8 +111,8 @@ async function patchJson<T>(path: string, body: unknown, accessToken: string): P
 }
 
 async function deleteJson<T>(path: string, accessToken: string): Promise<T> {
-  if (!apiBaseUrl) throw new ApiError('The API URL is not configured for this extension build.', 0);
-  return parseResponse<T>(await fetch(`${apiBaseUrl}${path}`, {
+  const url = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+  return parseResponse<T>(await fetch(url, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${accessToken}` },
   }));

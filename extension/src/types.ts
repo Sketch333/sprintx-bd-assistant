@@ -5,8 +5,6 @@ export type Citation = {
   snippet: string;
 };
 
-export type AskMode = 'knowledge' | 'facts' | 'advice';
-
 export type AskResponse = {
   ok: true;
   question: string;

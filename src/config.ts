@@ -8,7 +8,7 @@ const defaultSiteUrls = [
 ];
 
 export const config = {
-  port: Number(process.env.PORT ?? 3001),
+  port: Number(process.env.PORT ?? 3000),
   driveRoot: process.env.DRIVE_ROOT ?? './data/drive',
   userStorePath: process.env.USER_STORE_PATH ?? './data/users.json',
   databaseUrl: process.env.DATABASE_URL ?? '',

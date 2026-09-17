@@ -43,7 +43,6 @@ This project initializes the SprintX BD Assistant Milestone 1 foundation: a loca
 - `GET /health`
 - `POST /api/kb/ingest` (admin-only configured local/website ingestion)
 - `POST /api/kb/drive-sync` (admin-only Google Drive sync)
-- `POST /api/kb/facts-sync` (admin-only bounded case-study facts refresh)
 - `POST /api/kb/site-sync` (admin-only configured website crawl)
 - `POST /api/kb/search`
 - `POST /api/ask`
@@ -65,7 +64,7 @@ This project initializes the SprintX BD Assistant Milestone 1 foundation: a loca
 - Content-, industry-, project-, date-, team-, arbitrary folder-, and file-format-filtered inventory requests are explicitly refused rather than silently returning an unfiltered total. These tools do not yet perform aggregate analysis across document content; case-study classification is the supported folder-derived category.
 - For a named question such as “What tech stack was used in Dream?”, Ask first matches indexed document titles (ignoring case-study wrappers, file extensions and numeric copy suffixes), then retrieves chunks **within** those documents. Generic filenames such as `Services.pdf` do not narrow broad capability questions unless explicitly referenced as files. Multiple distinctive named documents each receive a retrieval allocation.
 
-Inventory answers do not call Gemini or decrypt personal generation keys. `POST /api/kb/facts-sync` extracts versioned structured facts from indexed case-study chunks without re-embedding; unchanged content is skipped, and changed content remains stale/excluded until extraction succeeds. The extension Admin view exposes this refresh separately from Drive sync. Ask supports `mode: "knowledge"` (default grounded retrieval), `mode: "facts"` (deterministic current structured facts), and `mode: "advice"` (clearly labelled general advice with no SprintX citations). Missing retrieved evidence must not be treated as proof that a document is absent, and the assistant is instructed not to promise staff messaging or access-provisioning actions it cannot perform.
+Inventory answers do not call Gemini or decrypt personal generation keys. Normal content answers still use Gemini with retrieved evidence; external web search and general-knowledge answer modes are not enabled. Missing retrieved evidence must not be treated as proof that a document is absent, and the assistant is instructed not to promise staff messaging or access-provisioning actions it cannot perform.
 
 After deploying folder-based classification, run **Sync Google Drive once** to populate folder metadata on existing flat-path records. The content/embedding pipeline version is unchanged, so complete unchanged records use metadata-only refreshes. Missing or interrupted records may still need ingestion. Legacy filename-only records are no longer counted as case studies until their folder provenance is refreshed. Archive directories remain excluded during recursive traversal. No SQL migration is required.
 

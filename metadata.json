@@ -1,0 +1,6 @@
+{
+  "name": "SprintX BD Assistant",
+  "description": "SprintX BD assistant knowledge-base ingestion, vector search, and AI assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
