@@ -40,10 +40,15 @@
       top = Math.max(8, Math.min(top, window.innerHeight - height - 8));
       shell.style.left = `${left}px`; shell.style.top = `${top}px`;
     }
-    function toggle() { collapsed = !collapsed; shell.classList.toggle('collapsed', collapsed); frame.hidden = collapsed; minimize.hidden = collapsed; restore.hidden = !collapsed; fallback.hidden = collapsed; clamp(); (collapsed ? restore : minimize).focus(); }
-    function close() { listeners.abort(); chrome.runtime.onMessage.removeListener(presentation); host.remove(); mounted = null; chrome.runtime.sendMessage({ type: 'sprintx:close', nonce }).catch(() => undefined); }
+    function endDrag(event) {
+      if (!drag || (event && event.pointerId !== drag.pointerId)) return;
+      const pointerId = drag.pointerId; drag = null;
+      if (header.hasPointerCapture?.(pointerId)) header.releasePointerCapture(pointerId);
+    }
+    function toggle() { endDrag(); collapsed = !collapsed; shell.classList.toggle('collapsed', collapsed); frame.hidden = collapsed; minimize.hidden = collapsed; restore.hidden = !collapsed; fallback.hidden = collapsed; clamp(); (collapsed ? restore : minimize).focus(); }
+    function close() { endDrag(); listeners.abort(); chrome.runtime.onMessage.removeListener(presentation); host.remove(); mounted = null; chrome.runtime.sendMessage({ type: 'sprintx:close', nonce }).catch(() => undefined); }
     function presentation(message, sender) {
-      if (sender.id !== chrome.runtime.id || !message || message.type !== 'sprintx:apply-appearance' || Object.keys(message).length !== 3 || (message.theme !== 'light' && message.theme !== 'dark') || (message.accent !== null && !/^#[\da-f]{6}$/i.test(message.accent))) return;
+      if (sender.id !== chrome.runtime.id || !message || message.type !== 'sprintx:apply-appearance' || Object.keys(message).length !== 3 || (message.theme !== 'light' && message.theme !== 'dark') || (message.accent !== null && (typeof message.accent !== 'string' || !/^#[\da-f]{6}$/i.test(message.accent)))) return;
       shell.dataset.theme = message.theme;
       if (message.accent === null) shell.style.removeProperty('--page-accent'); else shell.style.setProperty('--page-accent', message.accent);
     }
@@ -52,17 +57,22 @@
     const minimize = button('Minimize SprintX', '−', toggle);
     const restore = button('Restore SprintX', 'Open', toggle); restore.hidden = true;
     button('Close SprintX', '×', close);
-    header.addEventListener('pointerdown', (event) => { if (event.target.closest('button') || collapsed || event.button !== 0) return; drag = { x: event.clientX - left, y: event.clientY - top }; event.preventDefault(); }, { signal: listeners.signal });
-    window.addEventListener('pointermove', (event) => { if (!drag) return; left = event.clientX - drag.x; top = event.clientY - drag.y; clamp(); }, { signal: listeners.signal });
-    window.addEventListener('pointerup', () => { drag = null; }, { signal: listeners.signal });
-    window.addEventListener('pointercancel', () => { drag = null; }, { signal: listeners.signal });
+    header.addEventListener('pointerdown', (event) => {
+      if (event.target.closest('button') || collapsed || event.button !== 0 || drag) return;
+      drag = { pointerId: event.pointerId, x: event.clientX - left, y: event.clientY - top };
+      try { header.setPointerCapture?.(event.pointerId); } catch { drag = null; return; }
+      event.preventDefault();
+    }, { signal: listeners.signal });
+    window.addEventListener('pointermove', (event) => { if (!drag || event.pointerId !== drag.pointerId) return; left = event.clientX - drag.x; top = event.clientY - drag.y; clamp(); }, { signal: listeners.signal });
+    window.addEventListener('pointerup', endDrag, { signal: listeners.signal });
+    window.addEventListener('pointercancel', endDrag, { signal: listeners.signal });
+    header.addEventListener('lostpointercapture', (event) => { if (drag?.pointerId === event.pointerId) drag = null; }, { signal: listeners.signal });
     window.addEventListener('resize', clamp, { signal: listeners.signal });
     header.addEventListener('keydown', (event) => { if (event.key === 'Escape') close(); }, { signal: listeners.signal });
     shell.append(header, frame); root.append(style, shell); document.documentElement.append(host);
     mounted = { host, toggle, close }; clamp();
-    // Ordering: store appearance via private extension runtime before loading the frame.
-    chrome.runtime.sendMessage({ type: 'sprintx:appearance', ...sampleAppearance() }).catch(() => undefined);
+    // Background has already sampled and stored appearance before this synchronous load.
     frame.src = chrome.runtime.getURL(`index.html?overlay=${encodeURIComponent(nonce)}`);
   }
-  globalThis.__sprintxOverlay = { invoke, toggleExisting() { if (!mounted?.host.isConnected) return false; mounted.toggle(); return true; } };
+  globalThis.__sprintxOverlay = { invoke, sampleAppearance, toggleExisting() { if (!mounted?.host.isConnected) return false; mounted.toggle(); return true; } };
 })();
