@@ -146,13 +146,13 @@ test('drag captures initiating pointer and releases on up, lost capture and clos
 });
 
 
-test('side panel can pop out into a resizable Chrome popup and close itself when supported', async () => {
+test('side panel can request a resizable Chrome popup without coupling popup creation to panel close', async () => {
   const bg = await background();
   const response = await bg.message(
     { type: 'sprintx:pop-out', sourceWindowId: 9 },
     { id: 'unit', url: 'chrome-extension://unit/index.html' },
   );
-  expect(response).toEqual({ ok: true, detached: true });
+  expect(response).toEqual({ ok: true });
   expect(bg.chrome.windows.create).toHaveBeenCalledWith({
     url: 'chrome-extension://unit/index.html?popout=1&sourceWindowId=9',
     type: 'popup',
@@ -160,7 +160,7 @@ test('side panel can pop out into a resizable Chrome popup and close itself when
     width: 480,
     height: 760,
   });
-  expect(bg.chrome.sidePanel.close).toHaveBeenCalledWith({ windowId: 9 });
+  expect(bg.chrome.sidePanel.close).not.toHaveBeenCalled();
   expect(bg.store['sprintx:popout-session']).toEqual({ popupWindowId: 50, sourceWindowId: 9 });
 });
 
@@ -174,13 +174,4 @@ test('pop-out bounds are remembered after the user resizes or moves the popup', 
   expect(bg.store['sprintx:popout-bounds']).toEqual({ width: 620, height: 810, left: 120, top: 80 });
 });
 
-test('older Chrome versions still open the popup when sidePanel.close is unavailable', async () => {
-  const bg = await background();
-  delete bg.chrome.sidePanel.close;
-  const response = await bg.message(
-    { type: 'sprintx:pop-out', sourceWindowId: 9 },
-    { id: 'unit', url: 'chrome-extension://unit/index.html' },
-  );
-  expect(response).toEqual({ ok: true, detached: false });
-  expect(bg.chrome.windows.create).toHaveBeenCalledTimes(1);
-});
+
