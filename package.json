@@ -15,7 +15,7 @@
     "test": "npm run build && node --no-experimental-require-module test/commonjs-runtime.test.cjs && tsx --test test/**/*.test.ts",
     "web:install": "npm --prefix web install",
     "web:build": "npm --prefix web run build",
-    "vercel-build": "npm --prefix extension ci --include=dev && npm --prefix extension test -- tests/presentation.test.ts tests/overlay.test.ts && npm --prefix web install --include=dev && npm --prefix web run build"
+    "vercel-build": "npm --prefix extension ci --include=dev && npm --prefix extension test && npm --prefix extension run build && npm --prefix web install --include=dev && npm --prefix web run build"
   },
   "keywords": [
     "sprintx",
