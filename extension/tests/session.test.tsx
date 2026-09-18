@@ -69,12 +69,16 @@ test('composer collapses without losing unsent draft fields', async () => {
   expect((screen.getByLabelText('Additional context (optional)') as HTMLTextAreaElement).value).toBe('Mention the compliance deadline.');
 });
 
-test('draft fields scroll independently while the create action stays outside the scroll region', async () => {
+test('draft fields scroll independently while the create action stays in a separate footer', async () => {
   render(<App />); await screen.findByText('Conversation: Latest');
   fireEvent.click(screen.getByText('Draft'));
   const fields = screen.getByRole('group', { name: 'Draft fields' });
+  const footer = screen.getByTestId('draft-footer');
+  const createDraft = screen.getByRole('button', { name: 'Create draft' });
+  expect(fields.classList.contains('draft-scroll')).toBe(true);
   expect(fields.contains(screen.getByLabelText('Additional context (optional)'))).toBe(true);
-  expect(fields.contains(screen.getByRole('button', { name: 'Create draft' }))).toBe(false);
+  expect(fields.contains(createDraft)).toBe(false);
+  expect(footer.contains(createDraft)).toBe(true);
 });
 
 test('switching from Draft through a suggestion expands Ask and focuses the question', async () => {
