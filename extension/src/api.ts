@@ -2,11 +2,20 @@ import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftR
 import type { AskMode } from './types';
 import type { DriveSyncResult } from './drive-sync';
 
-export function resolveApiBaseUrl(configured = import.meta.env.VITE_API_BASE_URL, href = window.location.href): string {
+export function resolveApiBaseUrl(configured = import.meta.env.VITE_API_BASE_URL, href?: string): string {
   const explicit = typeof configured === 'string' ? configured.trim() : '';
   if (explicit) return explicit.replace(/\/$/, '');
+
+  const browserHref = typeof href === 'string'
+    ? href
+    : typeof globalThis.location?.href === 'string'
+      ? globalThis.location.href
+      : '';
+
+  if (!browserHref) return '';
+
   try {
-    const url = new URL(href);
+    const url = new URL(browserHref);
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : '';
   } catch {
     return '';
