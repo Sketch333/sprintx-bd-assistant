@@ -240,7 +240,14 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
 
     try {
       await deleteConversation(session.access_token, conversation.id);
+    } catch (conversationError) {
+      setConversations(previousConversations);
+      setError(conversationError instanceof Error ? conversationError.message : 'Could not delete conversation.');
+      setHistoryBusy(false);
+      return;
+    }
 
+    try {
       if (conversation.id === conversationId) {
         const replacement = remaining[0];
         if (replacement) {
@@ -257,9 +264,16 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
         }
         setHistoryOpen(false);
       }
-    } catch (conversationError) {
-      setConversations(previousConversations);
-      setError(conversationError instanceof Error ? conversationError.message : 'Could not delete conversation.');
+    } catch (replacementError) {
+      if (conversation.id === conversationId) {
+        const replacement = remaining[0];
+        setConversationId(replacement?.id);
+        setConversationTitle(replacement?.title ?? 'New conversation');
+        setConversationMessages([]);
+      }
+      setError(replacementError instanceof Error
+        ? `Conversation deleted, but the next conversation could not be loaded: ${replacementError.message}`
+        : 'Conversation deleted, but the next conversation could not be loaded.');
     } finally {
       setHistoryBusy(false);
     }
