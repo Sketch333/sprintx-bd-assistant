@@ -3,6 +3,7 @@ import type { AskMode, DraftInput } from './types';
 export type PresentationMode = 'web' | 'side-panel' | 'popout' | 'framed';
 
 export interface PresentationWorkspaceState {
+  userId: string;
   conversationId?: string;
   question: string;
   mode: 'ask' | 'draft';
@@ -42,11 +43,12 @@ function validDraft(value: unknown): value is DraftInput {
 function validWorkspaceState(value: unknown): value is PresentationWorkspaceState {
   if (!value || typeof value !== 'object') return false;
   const state = value as Record<string, unknown>;
-  return (state.conversationId === undefined || typeof state.conversationId === 'string')
+  return typeof state.userId === 'string'
+    && (state.conversationId === undefined || typeof state.conversationId === 'string')
     && typeof state.question === 'string'
     && (state.mode === 'ask' || state.mode === 'draft')
     && typeof state.composerExpanded === 'boolean'
-    && (state.askMode === 'knowledge' || state.askMode === 'facts' || state.askMode === 'general')
+    && (state.askMode === 'knowledge' || state.askMode === 'facts' || state.askMode === 'advice')
     && validDraft(state.draft);
 }
 
@@ -59,6 +61,11 @@ export async function readPresentationWorkspaceState(): Promise<PresentationWork
 export async function savePresentationWorkspaceState(state: PresentationWorkspaceState): Promise<void> {
   if (!chromeExtensionAvailable() || !chrome.storage?.session || !validWorkspaceState(state)) return;
   await chrome.storage.session.set({ [WORKSPACE_STATE_KEY]: state });
+}
+
+export async function clearPresentationWorkspaceState(): Promise<void> {
+  if (!chromeExtensionAvailable() || !chrome.storage?.session) return;
+  await chrome.storage.session.remove(WORKSPACE_STATE_KEY);
 }
 
 export async function popOutPresentation(): Promise<{ detached: boolean }> {
