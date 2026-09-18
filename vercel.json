@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm --prefix extension ci --include=dev && npm run extension:build && node scripts/sync-extension-web.cjs",
+  "buildCommand": "npm --prefix extension ci --include=dev && VITE_SUPABASE_URL=\"$SUPABASE_URL\" VITE_SUPABASE_ANON_KEY=\"$SUPABASE_ANON_KEY\" npm run extension:build && node scripts/sync-extension-web.cjs",
   "rewrites": [
     {
       "source": "/api/(.*)",
