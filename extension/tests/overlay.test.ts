@@ -58,10 +58,20 @@ async function background(sharedStore?: any) {
   const chrome: any = {
     runtime: { id: 'unit', getURL: (path: string) => `chrome-extension://unit/${path}`, onMessage: event('message'), onInstalled: event('installed') },
     action: { onClicked: event('action') }, contextMenus: { create: vi.fn(), onClicked: event('menu') },
-    sidePanel: { setPanelBehavior: vi.fn().mockResolvedValue(undefined), open: vi.fn().mockResolvedValue(undefined) },
-    windows: { create: vi.fn().mockResolvedValue({}) }, tabs: { onRemoved: event('removed'), sendMessage: vi.fn().mockResolvedValue({}) },
+    sidePanel: { setPanelBehavior: vi.fn().mockResolvedValue(undefined), open: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined) },
+    windows: {
+      create: vi.fn().mockResolvedValue({ id: 50, type: 'popup' }),
+      get: vi.fn().mockResolvedValue({ id: 9, type: 'normal' }),
+      update: vi.fn().mockResolvedValue(undefined),
+      onBoundsChanged: event('boundsChanged'),
+      onRemoved: event('windowRemoved'),
+    },
+    tabs: { onRemoved: event('removed'), sendMessage: vi.fn().mockResolvedValue({}) },
     scripting: { executeScript: vi.fn().mockResolvedValue([{ frameId: 0, documentId: 'top-document', result: { existing: false, appearance: { theme: 'light', accent: null } } }]) },
-    storage: { session: { set: async (values: any) => Object.assign(store, values), get: async (key: string) => ({ [key]: store[key] }), remove: async (key: string) => { delete store[key]; } } },
+    storage: {
+      session: { set: async (values: any) => Object.assign(store, values), get: async (key: string) => ({ [key]: store[key] }), remove: async (key: string) => { delete store[key]; } },
+      local: { set: async (values: any) => Object.assign(store, values), get: async (key: string) => ({ [key]: store[key] }) },
+    },
     webNavigation: { getFrame: vi.fn(async ({ frameId }: any) => frameId === 0 ? { documentId: 'top-document', parentFrameId: -1, url: 'https://example.test' } : { documentId: 'frame-document', parentFrameId: 0, url: `chrome-extension://unit/index.html?overlay=${store['overlay:7']?.nonce}` }) },
   };
   const scope: any = { chrome, crypto: { randomUUID: () => 'secure-nonce' }, URL, Date, console };
@@ -133,4 +143,44 @@ test('drag captures initiating pointer and releases on up, lost capture and clos
   (host.root.querySelector('[aria-label="Close SprintX"]') as HTMLElement).click();
   expect(header.releasePointerCapture).toHaveBeenCalledWith(44);
   expect(captured.size).toBe(0);
+});
+
+
+test('side panel can pop out into a resizable Chrome popup and close itself when supported', async () => {
+  const bg = await background();
+  const response = await bg.message(
+    { type: 'sprintx:pop-out', sourceWindowId: 9 },
+    { id: 'unit', url: 'chrome-extension://unit/index.html' },
+  );
+  expect(response).toEqual({ ok: true, detached: true });
+  expect(bg.chrome.windows.create).toHaveBeenCalledWith({
+    url: 'chrome-extension://unit/index.html?popout=1&sourceWindowId=9',
+    type: 'popup',
+    focused: true,
+    width: 480,
+    height: 760,
+  });
+  expect(bg.chrome.sidePanel.close).toHaveBeenCalledWith({ windowId: 9 });
+  expect(bg.store['sprintx:popout-session']).toEqual({ popupWindowId: 50, sourceWindowId: 9 });
+});
+
+test('pop-out bounds are remembered after the user resizes or moves the popup', async () => {
+  const bg = await background();
+  await bg.message(
+    { type: 'sprintx:pop-out', sourceWindowId: 9 },
+    { id: 'unit', url: 'chrome-extension://unit/index.html' },
+  );
+  await bg.handlers.boundsChanged({ id: 50, type: 'popup', state: 'normal', width: 620, height: 810, left: 120, top: 80 });
+  expect(bg.store['sprintx:popout-bounds']).toEqual({ width: 620, height: 810, left: 120, top: 80 });
+});
+
+test('older Chrome versions still open the popup when sidePanel.close is unavailable', async () => {
+  const bg = await background();
+  delete bg.chrome.sidePanel.close;
+  const response = await bg.message(
+    { type: 'sprintx:pop-out', sourceWindowId: 9 },
+    { id: 'unit', url: 'chrome-extension://unit/index.html' },
+  );
+  expect(response).toEqual({ ok: true, detached: false });
+  expect(bg.chrome.windows.create).toHaveBeenCalledTimes(1);
 });
