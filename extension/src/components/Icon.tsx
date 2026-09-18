@@ -1,6 +1,8 @@
+import type { ReactNode } from 'react';
+
 export type IconName = 'plus' | 'history' | 'new' | 'down' | 'chevronDown' | 'chevronUp' | 'send' | 'settings' | 'copy' | 'refine' | 'draft';
 
-const paths: Record<IconName, JSX.Element> = {
+const paths: Record<IconName, ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
   history: <><path d="M4 6h16M4 12h16M4 18h10" /><circle cx="18" cy="18" r="2.25" /></>,
   new: <><path d="m12 3 1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3Z" /><path d="M18.5 14.5 19 16l1.5.5-1.5.5-.5 1.5-.5-1.5-1.5-.5 1.5-.5.5-1.5Z" /></>,
