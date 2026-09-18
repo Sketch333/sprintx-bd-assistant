@@ -3,14 +3,26 @@
   "name": "SprintX BD Assistant",
   "description": "Ask grounded business-development questions using SprintX knowledge.",
   "version": "0.1.0",
-  "permissions": ["identity", "storage", "sidePanel", "activeTab", "scripting", "contextMenus", "webNavigation"],
+  "permissions": [
+    "identity",
+    "storage",
+    "sidePanel",
+    "activeTab",
+    "scripting",
+    "contextMenus",
+    "webNavigation"
+  ],
   "minimum_chrome_version": "116",
   "host_permissions": [
     "https://*.vercel.app/*",
     "https://*.supabase.co/*"
   ],
   "action": {
-    "default_title": "Open SprintX BD Assistant"
+    "default_title": "Open SprintX BD Assistant",
+    "default_icon": {
+      "16": "brand/icon-16.png",
+      "32": "brand/icon-32.png"
+    }
   },
   "background": {
     "service_worker": "background.js",
@@ -19,8 +31,23 @@
   "side_panel": {
     "default_path": "index.html"
   },
-  "web_accessible_resources": [{
-    "resources": ["index.html", "assets/*.js", "assets/*.css"],
-    "matches": ["http://*/*", "https://*/*"]
-  }]
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "index.html",
+        "assets/*.js",
+        "assets/*.css"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "brand/icon-16.png",
+    "32": "brand/icon-32.png",
+    "48": "brand/icon-48.png",
+    "128": "brand/icon-128.png"
+  }
 }

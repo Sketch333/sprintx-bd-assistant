@@ -54,7 +54,14 @@ test('answer separates compact bullets before bold service categories and items'
   expect(screen.getByText('Business Consulting [Source 1]')).toBeTruthy();
   expect(screen.getByText('Project Management [Source 2]')).toBeTruthy();
 });
+test('light is the default appearance when no preference has been saved', () => {
+  render(<AppearanceHarness />);
+  expect((screen.getByLabelText('Theme') as HTMLSelectElement).value).toBe('light');
+  expect(document.documentElement.dataset.theme).toBe('light');
+});
+
 test('auto tracks system changes while a saved explicit theme overrides them', () => {
+  localStorage.setItem('sprintx.appearance', JSON.stringify({ theme: 'auto', adaptiveAccent: false }));
   const listeners = new Set<() => void>();
   const media = { matches: false, addEventListener: (_name: string, listener: () => void) => listeners.add(listener), removeEventListener: (_name: string, listener: () => void) => listeners.delete(listener) };
   vi.stubGlobal('matchMedia', () => media);
