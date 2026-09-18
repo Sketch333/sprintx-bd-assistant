@@ -1,25 +1,40 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm --prefix extension ci --include=dev && VITE_SUPABASE_URL=\"$SUPABASE_URL\" VITE_SUPABASE_ANON_KEY=\"$SUPABASE_ANON_KEY\" npm run extension:build && node scripts/sync-extension-web.cjs",
-  "redirects": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/index.html",
-      "destination": "/",
-      "permanent": true
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "web/dist"
+      }
+    },
+    {
+      "src": "api/index.ts",
+      "use": "@vercel/node"
     }
   ],
-  "rewrites": [
+  "routes": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.ts"
+      "src": "/api/(.*)",
+      "dest": "/api/index.ts"
     },
     {
-      "source": "/health",
-      "destination": "/api/index.ts"
+      "src": "/health",
+      "dest": "/api/index.ts"
     },
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "src": "/index.html",
+      "status": 308,
+      "headers": {
+        "Location": "/"
+      }
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }

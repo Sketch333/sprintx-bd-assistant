@@ -1,6 +1,16 @@
 # SprintX BD Assistant MVP
 
-## API hosting versus the extension
+## Deployment architecture
+
+Vercel now hosts two explicit targets from the same repository:
+
+- `web/` is the normal browser preview served at the project root. It reuses the Workspace 2.0 React `App` and CSS from `extension/src`, so the web preview and Chrome extension share the same product UI rather than duplicating it.
+- `api/index.ts` remains the backend for `/api/*` and `/health`.
+- `extension/` remains the real Chrome Side Panel package. Build `extension/dist` and load that folder through `chrome://extensions`; Vercel does not serve the extension package itself.
+
+The canonical browser URL is the Vercel root. `/index.html` redirects to `/`.
+
+## API and extension behavior
 
 Drive sync now returns bounded batches: at most 10 newly generated embeddings per request, with a 120-second soft work budget checked between operations (including Drive listing pages). Already saved compatible chunks do not consume the new-embedding budget. Partial results have `complete: false`, `newEmbeddings`, and no global deletion cleanup. The updated extension automatically continues batches, refreshes the current session token for each request, displays progress, and stops on provider/network errors or a no-progress/continuation-limit guard. Closing the panel or signing out stops client continuation; restart sync to reuse saved progress. An in-flight server batch may finish after the client disconnects.
 
@@ -12,7 +22,7 @@ Existing untagged vectors are conservatively re-embedded once to establish model
 
 For a failed Drive sync, open Vercel Logs, filter `/api/kb/drive-sync`, and inspect `embedding_failure` entries. These include `quotaViolations` (Google's available quota metric, ID, and numeric limit) and `retryDelaySeconds` when returned by Google. Empty diagnostics mean Google did not provide recognized details; they do not prove quota is available. Provider messages, URLs, keys, document text, and arbitrary detail fields are excluded. Retry delay is diagnostic only; the existing bounded retry policy is unchanged.
 
-Vercel hosts the Express API, not the Chrome extension UI. Every URL is routed to `api/index.ts`; `/` deliberately returns service-status JSON. To use the UI, run `npm run extension:build`, open `chrome://extensions`, enable Developer mode, and load the `extension/dist` directory using **Load unpacked**. Open the extension's side panel. Hosting a normal browser UI would require a separate web build, routing, and browser-compatible authentication.
+Vercel hosts the browser preview and Express API as separate build targets. The root URL serves the `web/` preview, while `/api/*` and `/health` route to `api/index.ts`. The Chrome extension is still built separately with `npm run extension:build` and loaded from `extension/dist` through **Load unpacked**.
 
 Embedding requests use `gemini-embedding-001` with 1536 dimensions, a 15-second SDK request timeout, and at most three attempts with exponential backoff for transient failures. They never switch to an incompatible vector space. Safe errors and structured `embedding_failure` logs include the provider HTTP status, without keys or raw provider payloads. HTTP 429 requires checking the server key's Google AI Studio quota; retries cannot overcome an exhausted quota. HTTP 401/403 requires checking server-key permissions and restrictions. A failed sync is not a completed sync: resolve the reported cause and rerun before relying on newly imported documents.
 

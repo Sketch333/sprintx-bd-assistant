@@ -8,7 +8,17 @@ import { Sources } from './components/Sources';
 import { AppearanceSettings, useAppearance } from './components/AppearanceSettings';
 import { BrandMark } from './components/BrandMark';
 import { Icon } from './components/Icon';
+import { attachPresentationToBrowser, clearPresentationWorkspaceState, getPresentationMode, popOutPresentation, readPresentationWorkspaceState, savePresentationWorkspaceState } from './presentation';
 import type { AskMode, Conversation, ConversationMessage, DraftInput, ProvisionedUser } from './types';
+
+const GENERIC_CONVERSATION_TITLES = new Set(['New conversation', 'SprintX workspace']);
+
+function conversationTitleFrom(seed: string): string {
+  const normalized = seed.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= 56) return normalized || 'New conversation';
+  const clipped = normalized.slice(0, 53).trimEnd();
+  return `${clipped}…`;
+}
 
 export function App() {
   const [auth, setAuth] = useState<typeof import('./supabase') | null>(null);
@@ -59,6 +69,8 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   const appearance = useAppearance();
   const { supabase, signInWithGoogle } = auth;
   const session = currentSession;
+  const presentationMode = getPresentationMode();
+  const extensionPresentation = presentationMode === 'side-panel' || presentationMode === 'popout' || presentationMode === 'framed';
   const mounted = useRef(true);
   const driveSyncAbort = useRef<AbortController | null>(null);
   useEffect(() => () => { driveSyncAbort.current?.abort(); }, []);
@@ -91,6 +103,8 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   const setHistoryOpen = (open: boolean) => setSecondaryView(open ? 'history' : null);
   const setSettingsOpen = (open: boolean) => setSecondaryView(open ? 'settings' : null);
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [presentationStateReady, setPresentationStateReady] = useState(false);
+  const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string>();
   const [geminiKey, setGeminiKeyValue] = useState('');
   const [keyConfigured, setKeyConfigured] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
@@ -103,6 +117,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   const latestAssistantId = [...conversationMessages].reverse().find((message) => message.role === 'assistant')?.id;
   const composerBusy = asking || drafting || historyBusy;
   const secondaryBusy = adminBusy || savingKey || historyBusy;
+  const presentationBusy = secondaryBusy || asking || drafting;
   useEffect(() => {
     if (!composerExpanded || !pendingComposerFocus) return;
     const target = document.getElementById(pendingComposerFocus);
@@ -111,6 +126,10 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     setPendingComposerFocus(null);
   }, [composerExpanded, mode, pendingComposerFocus]);
   useEffect(() => { if (!settingsOpen) setGeminiKeyValue(''); }, [settingsOpen]);
+  useEffect(() => {
+    document.documentElement.dataset.presentation = presentationMode;
+    return () => { delete document.documentElement.dataset.presentation; };
+  }, [presentationMode]);
   function toggleSecondary(view: 'history' | 'settings' | 'admin') {
     if (secondaryBusy) return;
     setSecondaryView((current) => current === view ? null : view);
@@ -119,30 +138,98 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   useEffect(() => {
     if (!session?.access_token) {
       setConversationId(undefined);
+      setPresentationStateReady(false);
       return;
     }
+
     let active = true;
-    listConversations(session.access_token)
-      .then(async ({ conversations }) => {
+    (async () => {
+      try {
+        const savedPresentation = await readPresentationWorkspaceState();
+        const restored = savedPresentation?.userId === session.user.id ? savedPresentation : null;
+        const listed = await listConversations(session.access_token);
         if (!active) return;
-        setConversations(conversations);
-        const latest = conversations[0] ?? (await createConversation(session.access_token, 'SprintX workspace')).conversation;
-        if (!active) return;
-        const { messages } = await getConversationMessages(session.access_token, latest.id);
-        if (active) {
-          setConversationId(latest.id);
-          setConversationTitle(latest.title);
-          setConversationMessages(messages);
-          if (!conversations.length) setConversations([latest]);
+
+        let available = listed.conversations;
+        let selected = restored?.conversationId
+          ? available.find((conversation) => conversation.id === restored.conversationId)
+          : undefined;
+
+        if (!selected) selected = available[0];
+        if (!selected) {
+          selected = (await createConversation(session.access_token, 'SprintX workspace')).conversation;
+          available = [selected];
         }
-      })
-      .catch((conversationError) => {
-        if (active) setError(conversationError instanceof Error ? conversationError.message : 'Conversation history is unavailable.');
-      });
-    return () => {
-      active = false;
-    };
+        if (!active) return;
+
+        const { messages } = await getConversationMessages(session.access_token, selected.id);
+        if (!active) return;
+
+        setConversations(available);
+        setConversationId(selected.id);
+        setConversationTitle(selected.title);
+        setConversationMessages(messages);
+
+        if (restored) {
+          setQuestion(restored.question);
+          setMode(restored.mode);
+          setComposerExpanded(restored.composerExpanded);
+          setAskMode(restored.askMode);
+          setDraft(restored.draft);
+        }
+        setPresentationStateReady(true);
+      } catch (conversationError) {
+        if (active) {
+          setPresentationStateReady(true);
+          setError(conversationError instanceof Error ? conversationError.message : 'Conversation history is unavailable.');
+        }
+      }
+    })();
+
+    return () => { active = false; };
   }, [session?.user.id]);
+
+  useEffect(() => {
+    if (!session?.access_token || !presentationStateReady || !extensionPresentation) return;
+    const snapshot = {
+      userId: session.user.id,
+      conversationId,
+      question,
+      mode,
+      composerExpanded,
+      askMode,
+      draft,
+    };
+    if (presentationMode === 'framed') {
+      void savePresentationWorkspaceState(snapshot);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void savePresentationWorkspaceState(snapshot);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [session?.access_token, presentationStateReady, extensionPresentation, conversationId, question, mode, composerExpanded, askMode, draft]);
+
+  function maybeAutoTitleConversation(seed: string) {
+    if (!session?.access_token || !conversationId || !GENERIC_CONVERSATION_TITLES.has(conversationTitle)) return;
+    const id = conversationId;
+    const title = conversationTitleFrom(seed);
+    if (!title || GENERIC_CONVERSATION_TITLES.has(title)) return;
+
+    const optimisticUpdatedAt = new Date().toISOString();
+    setConversationTitle(title);
+    setConversations((current) => current.map((item) => item.id === id ? { ...item, title, updatedAt: optimisticUpdatedAt } : item));
+
+    void renameConversation(session.access_token, id, title)
+      .then(({ conversation }) => {
+        if (!mounted.current) return;
+        setConversations((current) => current.map((item) => item.id === conversation.id ? conversation : item));
+        setConversationTitle((current) => current === title ? conversation.title : current);
+      })
+      .catch(() => {
+        if (mounted.current) setFeedback('Message saved, but the conversation title could not be updated.');
+      });
+  }
 
   async function handleNewConversation() {
     if (!session?.access_token) return;
@@ -198,20 +285,51 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   }
 
   async function handleDeleteConversation(conversation: Conversation) {
-    if (!session?.access_token || !window.confirm(`Delete "${conversation.title}"?`)) return;
+    if (!session?.access_token || historyBusy) return;
+    const previousConversations = conversations;
+    const remaining = conversations.filter((item) => item.id !== conversation.id);
+
+    setPendingDeleteConversationId(undefined);
     setHistoryBusy(true);
     setError('');
+    setConversations(remaining);
+
     try {
       await deleteConversation(session.access_token, conversation.id);
-      const remaining = conversations.filter((item) => item.id !== conversation.id);
-      setConversations(remaining);
+    } catch (conversationError) {
+      setConversations(previousConversations);
+      setError(conversationError instanceof Error ? conversationError.message : 'Could not delete conversation.');
+      setHistoryBusy(false);
+      return;
+    }
+
+    try {
       if (conversation.id === conversationId) {
         const replacement = remaining[0];
-        if (replacement) await handleSelectConversation(replacement);
-        else await handleNewConversation();
+        if (replacement) {
+          const { messages } = await getConversationMessages(session.access_token, replacement.id);
+          setConversationId(replacement.id);
+          setConversationTitle(replacement.title);
+          setConversationMessages(messages);
+        } else {
+          const created = await createConversation(session.access_token, 'New conversation');
+          setConversationId(created.conversation.id);
+          setConversationTitle(created.conversation.title);
+          setConversationMessages([]);
+          setConversations([created.conversation]);
+        }
+        setHistoryOpen(false);
       }
-    } catch (conversationError) {
-      setError(conversationError instanceof Error ? conversationError.message : 'Could not delete conversation.');
+    } catch (replacementError) {
+      if (conversation.id === conversationId) {
+        const replacement = remaining[0];
+        setConversationId(replacement?.id);
+        setConversationTitle(replacement?.title ?? 'New conversation');
+        setConversationMessages([]);
+      }
+      setError(replacementError instanceof Error
+        ? `Conversation deleted, but the next conversation could not be loaded: ${replacementError.message}`
+        : 'Conversation deleted, but the next conversation could not be loaded.');
     } finally {
       setHistoryBusy(false);
     }
@@ -245,6 +363,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   async function handleSignOut() {
     driveSyncAbort.current?.abort();
     setError('');
+    await clearPresentationWorkspaceState();
     const { error: signOutError } = await supabase.auth.signOut();
     if (signOutError) setError(signOutError.message);
     setSettingsOpen(false);
@@ -392,6 +511,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
         { id: `local-assistant-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'assistant', content: response.answer, citations: response.sources, createdAt: new Date().toISOString() },
       ]);
       setComposerExpanded(false);
+      maybeAutoTitleConversation(trimmedQuestion);
     } catch (askError) {
       if (!mounted.current) return;
       if (askError instanceof ApiError && askError.status === 401) {
@@ -421,6 +541,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
         { id: `local-draft-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'assistant', content: response.draft, citations: response.sources, createdAt: new Date().toISOString() },
       ]);
       setComposerExpanded(false);
+      maybeAutoTitleConversation(`${draft.objective.trim()} for ${draft.audience.trim()}`);
     } catch (draftError) {
       if (!mounted.current) return;
       if (draftError instanceof ApiError && draftError.status === 401) await supabase.auth.signOut();
@@ -452,6 +573,33 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     openComposer(nextMode, nextMode === 'ask' ? 'question' : 'audience');
   }
 
+  function workspacePresentationState() {
+    return { userId: session?.user.id ?? '', conversationId, question, mode, composerExpanded, askMode, draft };
+  }
+
+  async function handlePopOutPresentation() {
+    if (presentationBusy) return;
+    setError('');
+    try {
+      await savePresentationWorkspaceState(workspacePresentationState());
+      const { detached } = await popOutPresentation();
+      if (!detached) setFeedback('SprintX is floating over the page. This Chrome version keeps the original side panel open.');
+    } catch (presentationError) {
+      setError(presentationError instanceof Error ? presentationError.message : 'Could not pop out SprintX.');
+    }
+  }
+
+  async function handleAttachPresentation() {
+    if (presentationBusy) return;
+    setError('');
+    try {
+      await savePresentationWorkspaceState(workspacePresentationState());
+      await attachPresentationToBrowser();
+    } catch (presentationError) {
+      setError(presentationError instanceof Error ? presentationError.message : 'Could not attach SprintX to the browser.');
+    }
+  }
+
 
   return (
     <main className="shell">
@@ -460,7 +608,11 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
           <BrandMark />
           <span className="header-product">BD Assistant</span>
         </div>
-        {session && <nav className="header-actions" aria-label="Workspace">{role === 'admin' && <button className="text-button" aria-expanded={adminOpen} disabled={secondaryBusy} onClick={openAdmin}>Admin</button>}<button className="text-button settings-trigger" aria-expanded={settingsOpen} disabled={secondaryBusy} onClick={() => toggleSecondary('settings')}><Icon name="settings" size={15} />Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></nav>}
+        {(session || extensionPresentation) && <nav className="header-actions" aria-label="Workspace">
+          {presentationMode === 'side-panel' && <button className="icon-button presentation-button" type="button" aria-label="Float SprintX over page" title="Float SprintX over page" disabled={presentationBusy} onClick={handlePopOutPresentation}><Icon name="popout" size={16} /></button>}
+          {presentationMode === 'popout' && <button className="icon-button presentation-button" type="button" aria-label="Attach SprintX to browser" title="Attach SprintX to browser" disabled={presentationBusy} onClick={handleAttachPresentation}><Icon name="attach" size={16} /></button>}
+          {session && <>{role === 'admin' && <button className="text-button" aria-expanded={adminOpen} disabled={secondaryBusy} onClick={openAdmin}>Admin</button>}<button className="text-button settings-trigger" aria-expanded={settingsOpen} disabled={secondaryBusy} onClick={() => toggleSecondary('settings')}><Icon name="settings" size={15} />Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></>}
+        </nav>}
       </header>
 
       {!session ? (
@@ -524,7 +676,15 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
                 <button className="conversation-select" type="button" onClick={() => handleSelectConversation(conversation)} disabled={historyBusy || asking || drafting}>
                   <strong>{conversation.title}</strong><small>{new Date(conversation.updatedAt).toLocaleString()}</small>
                 </button>
-                <span className="conversation-actions"><button className="text-button" type="button" onClick={() => handleRenameConversation(conversation)} disabled={historyBusy || asking || drafting}>Rename</button><button className="text-button danger-text" type="button" onClick={() => handleDeleteConversation(conversation)} disabled={historyBusy || asking || drafting}>Delete</button></span>
+                <span className="conversation-actions">
+                  {pendingDeleteConversationId === conversation.id ? <>
+                    <button className="text-button danger-text" type="button" aria-label={`Confirm delete ${conversation.title}`} onClick={() => handleDeleteConversation(conversation)} disabled={historyBusy || asking || drafting}>Confirm</button>
+                    <button className="text-button" type="button" aria-label={`Cancel delete ${conversation.title}`} onClick={() => setPendingDeleteConversationId(undefined)} disabled={historyBusy}>Cancel</button>
+                  </> : <>
+                    <button className="text-button" type="button" onClick={() => handleRenameConversation(conversation)} disabled={historyBusy || asking || drafting}>Rename</button>
+                    <button className="text-button danger-text" type="button" onClick={() => setPendingDeleteConversationId(conversation.id)} disabled={historyBusy || asking || drafting}>Delete</button>
+                  </>}
+                </span>
               </div>)}
             </div>}
           </section>}

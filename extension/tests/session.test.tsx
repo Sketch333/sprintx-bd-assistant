@@ -2,13 +2,14 @@
 import React from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-const fixtures = vi.hoisted(() => ({ listeners: [] as Array<(_event: string, session: any) => void>, session: null as any, role: 'intern', sync: vi.fn(), list: vi.fn(), messages: vi.fn(), ask: vi.fn() }));
+const fixtures = vi.hoisted(() => ({ listeners: [] as Array<(_event: string, session: any) => void>, session: null as any, role: 'intern', sync: vi.fn(), list: vi.fn(), messages: vi.fn(), ask: vi.fn(), rename: vi.fn(), removeConversation: vi.fn(), createConversation: vi.fn() }));
 vi.mock('../src/supabase', () => ({ signInWithGoogle: vi.fn(), supabase: { auth: {
   getSession: async () => ({ data: { session: fixtures.session } }),
   onAuthStateChange: (callback: any) => { fixtures.listeners.push(callback); return { data: { subscription: { unsubscribe: () => { fixtures.listeners = fixtures.listeners.filter((item) => item !== callback); } } } }; },
   signOut: async () => ({ error: null }),
 } } }));
 vi.mock('../src/api', () => ({ ApiError: class extends Error { constructor(message: string, public status: number) { super(message); } }, listConversations: fixtures.list, getConversationMessages: fixtures.messages, askAssistant: fixtures.ask,
+  renameConversation: fixtures.rename, deleteConversation: fixtures.removeConversation, createConversation: fixtures.createConversation,
   syncGoogleDrive: fixtures.sync, listUsers: async () => ({ users: [] }),
   getProfile: async () => ({ geminiKeyConfigured: false, user: { role: fixtures.role } }) }));
 import { App } from '../src/App';
@@ -21,6 +22,9 @@ beforeEach(() => {
   fixtures.list.mockReset().mockResolvedValue({ conversations: [conversation('Latest'), conversation('Older')] });
   fixtures.messages.mockReset().mockResolvedValue({ messages: [] });
   fixtures.ask.mockReset();
+  fixtures.rename.mockReset().mockImplementation(async (_token, id, title) => ({ conversation: { ...conversation(id), title } }));
+  fixtures.removeConversation.mockReset().mockResolvedValue({ ok: true });
+  fixtures.createConversation.mockReset().mockResolvedValue({ conversation: { ...conversation('Created'), title: 'New conversation' } });
   fixtures.role = 'intern'; fixtures.sync.mockReset();
 });
 afterEach(cleanup);
@@ -136,6 +140,55 @@ test('explicit appearance preference survives settings exit and takes precedence
   fireEvent.click(screen.getByText('Settings')); fireEvent.click(screen.getByText('Settings'));
   expect((screen.getByLabelText('Theme') as HTMLSelectElement).value).toBe('dark');
 });
+test('the first successful Ask gives a new conversation a meaningful title', async () => {
+  fixtures.list.mockResolvedValue({ conversations: [{ ...conversation('new-thread'), title: 'New conversation' }] });
+  fixtures.ask.mockResolvedValue({ ok: true, question: 'Which case studies support our AI expertise?', answer: 'AI evidence', sources: [], usedGemini: false, userId: 'alice', conversationId: 'new-thread' });
+  render(<App />);
+  await screen.findByText('Conversation: New conversation');
+  fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Which case studies support our AI expertise?' } });
+  fireEvent.click(screen.getByText('Ask SprintX'));
+  await screen.findByText('AI evidence');
+  expect(screen.getByText('Conversation: Which case studies support our AI expertise?')).toBeTruthy();
+  await waitFor(() => expect(fixtures.rename).toHaveBeenCalledWith('alice', 'new-thread', 'Which case studies support our AI expertise?'));
+});
+
+test('manual conversation titles are not replaced after Ask', async () => {
+  fixtures.list.mockResolvedValue({ conversations: [{ ...conversation('custom'), title: 'Founder outreach research' }] });
+  fixtures.ask.mockResolvedValue({ ok: true, question: 'Services?', answer: 'Answer', sources: [], usedGemini: false, userId: 'alice', conversationId: 'custom' });
+  render(<App />);
+  await screen.findByText('Conversation: Founder outreach research');
+  fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Services?' } });
+  fireEvent.click(screen.getByText('Ask SprintX'));
+  await screen.findByText('Answer');
+  expect(fixtures.rename).not.toHaveBeenCalled();
+});
+
+test('conversation deletion uses inline confirmation and removes the row without window.confirm', async () => {
+  const confirmSpy = vi.spyOn(window, 'confirm');
+  render(<App />);
+  fireEvent.click(await screen.findByText('Conversation: Latest'));
+  const olderRow = screen.getByText('Older').closest('.conversation-item') as HTMLElement;
+  fireEvent.click(olderRow.querySelector('button.danger-text') as HTMLButtonElement);
+  expect(confirmSpy).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Confirm delete Older' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm delete Older' }));
+  await waitFor(() => expect(fixtures.removeConversation).toHaveBeenCalledWith('alice', 'Older'));
+  expect(screen.queryByText('Older')).toBeNull();
+  confirmSpy.mockRestore();
+});
+
+test('failed conversation deletion restores the removed history row', async () => {
+  fixtures.removeConversation.mockRejectedValueOnce(new Error('Delete failed'));
+  render(<App />);
+  fireEvent.click(await screen.findByText('Conversation: Latest'));
+  const olderRow = screen.getByText('Older').closest('.conversation-item') as HTMLElement;
+  fireEvent.click(olderRow.querySelector('button.danger-text') as HTMLButtonElement);
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm delete Older' }));
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toContain('Delete failed');
+  expect(screen.getByText('Older')).toBeTruthy();
+});
+
 test('a successful request has one answer in the timeline and clears only the sent question', async () => {
   fixtures.ask.mockResolvedValue({ ok: true, question: 'Services?', answer: 'Single timeline answer', sources: [], usedGemini: false, userId: 'alice', conversationId: 'Latest' });
   render(<App />); await screen.findByText('Conversation: Latest');
