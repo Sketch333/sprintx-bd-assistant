@@ -54,6 +54,46 @@ test('a failed request preserves editable question input', async () => {
   fireEvent.click(screen.getByText('Ask SprintX')); await screen.findByRole('alert');
   expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).value).toBe('Keep this question');
   expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).disabled).toBe(false);
+  expect(screen.getByRole('button', { name: 'Collapse composer' })).toBeTruthy();
+});
+
+test('composer collapses without losing unsent draft fields', async () => {
+  render(<App />); await screen.findByText('Conversation: Latest');
+  fireEvent.click(screen.getByText('Draft'));
+  fireEvent.change(screen.getByLabelText('Audience'), { target: { value: 'A fintech founder' } });
+  fireEvent.change(screen.getByLabelText('Additional context (optional)'), { target: { value: 'Mention the compliance deadline.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse composer' }));
+  expect(screen.queryByLabelText('Additional context (optional)')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Expand composer' }));
+  expect((screen.getByLabelText('Audience') as HTMLInputElement).value).toBe('A fintech founder');
+  expect((screen.getByLabelText('Additional context (optional)') as HTMLTextAreaElement).value).toBe('Mention the compliance deadline.');
+});
+
+test('draft fields scroll independently while the create action stays outside the scroll region', async () => {
+  render(<App />); await screen.findByText('Conversation: Latest');
+  fireEvent.click(screen.getByText('Draft'));
+  const fields = screen.getByRole('group', { name: 'Draft fields' });
+  expect(fields.contains(screen.getByLabelText('Additional context (optional)'))).toBe(true);
+  expect(fields.contains(screen.getByRole('button', { name: 'Create draft' }))).toBe(false);
+});
+
+test('switching from Draft through a suggestion expands Ask and focuses the question', async () => {
+  render(<App />); await screen.findByText('Conversation: Latest');
+  fireEvent.click(screen.getByText('Draft'));
+  fireEvent.click(screen.getByText('What services does SprintX offer?'));
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Your question')));
+  expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).value).toBe('What services does SprintX offer?');
+});
+
+test('quick Ask exits a secondary view and restores the expanded composer', async () => {
+  render(<App />); await screen.findByText('Conversation: Latest');
+  fireEvent.click(screen.getByText('Settings'));
+  expect(screen.queryByRole('region', { name: 'Message composer' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Ask a question' }));
+  const composer = await screen.findByRole('region', { name: 'Message composer' });
+  expect(composer).toBeTruthy();
+  expect(screen.queryByLabelText('Replace key')).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Your question')));
 });
 test('saved answers group duplicate evidence without renumbering citations and reject unsafe links', async () => {
   fixtures.messages.mockResolvedValue({ messages: [{ id: 'saved', conversationId: 'Latest', role: 'assistant', content: 'Evidence [1] [2] [3]', citations: [
@@ -97,10 +137,12 @@ test('a successful request has one answer in the timeline and clears only the se
   render(<App />); await screen.findByText('Conversation: Latest');
   fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Services?' } }); fireEvent.click(screen.getByText('Ask SprintX'));
   await screen.findByText('Single timeline answer'); expect(screen.getAllByText('Single timeline answer')).toHaveLength(1);
-  expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).value).toBe('');
   const latest = screen.getByRole('link', { name: 'Latest response' }) as HTMLAnchorElement;
   expect(latest.getAttribute('href')).toBe('#latest-message');
   expect(document.querySelector('#latest-message')?.textContent).toContain('Single timeline answer');
+  fireEvent.click(screen.getByRole('button', { name: 'Expand composer' }));
+  expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).value).toBe('');
+  expect(screen.getByRole('button', { name: 'Collapse composer' })).toBeTruthy();
 });
 test('token refresh preserves the selected thread', async () => {
   render(<App />); await screen.findByText('Conversation: Latest');
