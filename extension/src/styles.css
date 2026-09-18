@@ -505,7 +505,8 @@ textarea:focus, input:focus, select:focus { border-color: color-mix(in srgb, var
 
 
 :root[data-presentation="popout"] .shell {
-  max-width: none;
+  max-width: 820px;
+  min-width: 0;
 }
 
 :root[data-presentation="popout"] .header {
