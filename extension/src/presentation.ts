@@ -69,11 +69,11 @@ export async function clearPresentationWorkspaceState(): Promise<void> {
 }
 
 export async function popOutPresentation(href = window.location.href): Promise<{ detached: boolean }> {
-  if (!chromeExtensionAvailable() || resolvePresentationMode(href, false) !== 'side-panel') throw new Error('SprintX can only pop out from its Chrome side panel.');
+  if (!chromeExtensionAvailable() || resolvePresentationMode(href, false) !== 'side-panel') throw new Error('SprintX can only float over a page from its Chrome side panel.');
   const current = await chrome.windows.getCurrent();
   if (!Number.isInteger(current.id)) throw new Error('The current browser window is unavailable.');
-  const response = await chrome.runtime.sendMessage({ type: 'sprintx:pop-out', sourceWindowId: current.id }) as { ok?: boolean } | undefined;
-  if (response?.ok !== true) throw new Error('SprintX could not open a pop-out window.');
+  const response = await chrome.runtime.sendMessage({ type: 'sprintx:float-over-page', sourceWindowId: current.id }) as { ok?: boolean; error?: string } | undefined;
+  if (response?.ok !== true) throw new Error(response?.error || 'SprintX could not float over this page.');
 
   let detached = false;
   const closePanel = (chrome.sidePanel as typeof chrome.sidePanel & { close?: (options: { windowId: number }) => Promise<void> }).close;
@@ -86,8 +86,19 @@ export async function popOutPresentation(href = window.location.href): Promise<{
   return { detached };
 }
 
-export async function attachPresentationToBrowser(href = window.location.href): Promise<void> {
-  if (!chromeExtensionAvailable() || resolvePresentationMode(href, false) !== 'popout') throw new Error('SprintX is not running in a pop-out window.');
+export async function attachPresentationToBrowser(href = window.location.href, framed = window.top !== window): Promise<void> {
+  if (!chromeExtensionAvailable()) throw new Error('SprintX attach is only available inside the Chrome extension.');
+  const mode = resolvePresentationMode(href, framed);
+
+  if (mode === 'framed') {
+    const nonce = new URL(href).searchParams.get('overlay');
+    if (!nonce) throw new Error('The floating SprintX session is unavailable.');
+    const response = await chrome.runtime.sendMessage({ type: 'sprintx:attach-overlay', nonce }) as { ok?: boolean; error?: string } | undefined;
+    if (response?.ok !== true) throw new Error(response?.error || 'SprintX could not attach to the browser.');
+    return;
+  }
+
+  if (mode !== 'popout') throw new Error('SprintX is not running in a detachable presentation.');
   const sourceWindowId = Number(new URL(href).searchParams.get('sourceWindowId'));
   if (!Number.isInteger(sourceWindowId) || sourceWindowId < 0) throw new Error('The original browser window is unavailable.');
 
