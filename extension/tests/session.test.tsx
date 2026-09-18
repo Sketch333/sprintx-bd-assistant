@@ -55,6 +55,34 @@ test('a failed request preserves editable question input', async () => {
   expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).value).toBe('Keep this question');
   expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).disabled).toBe(false);
 });
+
+test('composer collapses without losing unsent draft fields', async () => {
+  render(<App />); await screen.findByText('Conversation: Latest');
+  fireEvent.click(screen.getByText('Draft'));
+  fireEvent.change(screen.getByLabelText('Audience'), { target: { value: 'A fintech founder' } });
+  fireEvent.change(screen.getByLabelText('Additional context (optional)'), { target: { value: 'Mention the compliance deadline.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse composer' }));
+  expect(screen.queryByLabelText('Additional context (optional)')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Expand composer' }));
+  expect((screen.getByLabelText('Audience') as HTMLInputElement).value).toBe('A fintech founder');
+  expect((screen.getByLabelText('Additional context (optional)') as HTMLTextAreaElement).value).toBe('Mention the compliance deadline.');
+});
+
+test('draft fields scroll independently while the create action stays outside the scroll region', async () => {
+  render(<App />); await screen.findByText('Conversation: Latest');
+  fireEvent.click(screen.getByText('Draft'));
+  const fields = screen.getByRole('group', { name: 'Draft fields' });
+  expect(fields.contains(screen.getByLabelText('Additional context (optional)'))).toBe(true);
+  expect(fields.contains(screen.getByRole('button', { name: 'Create draft' }))).toBe(false);
+});
+
+test('switching from Draft through a suggestion expands Ask and focuses the question', async () => {
+  render(<App />); await screen.findByText('Conversation: Latest');
+  fireEvent.click(screen.getByText('Draft'));
+  fireEvent.click(screen.getByText('What services does SprintX offer?'));
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Your question')));
+  expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).value).toBe('What services does SprintX offer?');
+});
 test('saved answers group duplicate evidence without renumbering citations and reject unsafe links', async () => {
   fixtures.messages.mockResolvedValue({ messages: [{ id: 'saved', conversationId: 'Latest', role: 'assistant', content: 'Evidence [1] [2] [3]', citations: [
     { title: 'Services', path: '/services', url: 'https://example.test/services', snippet: 'First excerpt' },
@@ -101,6 +129,7 @@ test('a successful request has one answer in the timeline and clears only the se
   const latest = screen.getByRole('link', { name: 'Latest response' }) as HTMLAnchorElement;
   expect(latest.getAttribute('href')).toBe('#latest-message');
   expect(document.querySelector('#latest-message')?.textContent).toContain('Single timeline answer');
+  expect(screen.getByRole('button', { name: 'Expand composer' })).toBeTruthy();
 });
 test('token refresh preserves the selected thread', async () => {
   render(<App />); await screen.findByText('Conversation: Latest');
