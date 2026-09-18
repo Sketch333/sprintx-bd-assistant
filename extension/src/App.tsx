@@ -8,7 +8,7 @@ import { Sources } from './components/Sources';
 import { AppearanceSettings, useAppearance } from './components/AppearanceSettings';
 import { BrandMark } from './components/BrandMark';
 import { Icon } from './components/Icon';
-import { attachPresentationToBrowser, getPresentationMode, popOutPresentation, readPresentationWorkspaceState, savePresentationWorkspaceState } from './presentation';
+import { attachPresentationToBrowser, clearPresentationWorkspaceState, getPresentationMode, popOutPresentation, readPresentationWorkspaceState, savePresentationWorkspaceState } from './presentation';
 import type { AskMode, Conversation, ConversationMessage, DraftInput, ProvisionedUser } from './types';
 
 const GENERIC_CONVERSATION_TITLES = new Set(['New conversation', 'SprintX workspace']);
@@ -145,7 +145,8 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     let active = true;
     (async () => {
       try {
-        const restored = await readPresentationWorkspaceState();
+        const savedPresentation = await readPresentationWorkspaceState();
+        const restored = savedPresentation?.userId === session.user.id ? savedPresentation : null;
         const listed = await listConversations(session.access_token);
         if (!active) return;
 
@@ -192,6 +193,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     if (!session?.access_token || !presentationStateReady || !extensionPresentation) return;
     const timer = window.setTimeout(() => {
       void savePresentationWorkspaceState({
+        userId: session.user.id,
         conversationId,
         question,
         mode,
@@ -356,6 +358,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   async function handleSignOut() {
     driveSyncAbort.current?.abort();
     setError('');
+    await clearPresentationWorkspaceState();
     const { error: signOutError } = await supabase.auth.signOut();
     if (signOutError) setError(signOutError.message);
     setSettingsOpen(false);
@@ -566,7 +569,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   }
 
   function workspacePresentationState() {
-    return { conversationId, question, mode, composerExpanded, askMode, draft };
+    return { userId: session?.user.id ?? '', conversationId, question, mode, composerExpanded, askMode, draft };
   }
 
   async function handlePopOutPresentation() {
