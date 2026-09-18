@@ -70,7 +70,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   const { supabase, signInWithGoogle } = auth;
   const session = currentSession;
   const presentationMode = getPresentationMode();
-  const extensionPresentation = presentationMode === 'side-panel' || presentationMode === 'popout';
+  const extensionPresentation = presentationMode === 'side-panel' || presentationMode === 'popout' || presentationMode === 'framed';
   const mounted = useRef(true);
   const driveSyncAbort = useRef<AbortController | null>(null);
   useEffect(() => () => { driveSyncAbort.current?.abort(); }, []);
@@ -578,7 +578,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     try {
       await savePresentationWorkspaceState(workspacePresentationState());
       const { detached } = await popOutPresentation();
-      if (!detached) setFeedback('Pop-out opened. This Chrome version keeps the original side panel open.');
+      if (!detached) setFeedback('SprintX is floating over the page. This Chrome version keeps the original side panel open.');
     } catch (presentationError) {
       setError(presentationError instanceof Error ? presentationError.message : 'Could not pop out SprintX.');
     }
@@ -604,8 +604,8 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
           <span className="header-product">BD Assistant</span>
         </div>
         {(session || extensionPresentation) && <nav className="header-actions" aria-label="Workspace">
-          {presentationMode === 'side-panel' && <button className="icon-button presentation-button" type="button" aria-label="Pop out SprintX" title="Pop out SprintX" disabled={presentationBusy} onClick={handlePopOutPresentation}><Icon name="popout" size={16} /></button>}
-          {presentationMode === 'popout' && <button className="icon-button presentation-button" type="button" aria-label="Attach SprintX to browser" title="Attach SprintX to browser" disabled={presentationBusy} onClick={handleAttachPresentation}><Icon name="attach" size={16} /></button>}
+          {presentationMode === 'side-panel' && <button className="icon-button presentation-button" type="button" aria-label="Float SprintX over page" title="Float SprintX over page" disabled={presentationBusy} onClick={handlePopOutPresentation}><Icon name="popout" size={16} /></button>}
+          {(presentationMode === 'popout' || presentationMode === 'framed') && <button className="icon-button presentation-button" type="button" aria-label="Attach SprintX to browser" title="Attach SprintX to browser" disabled={presentationBusy} onClick={handleAttachPresentation}><Icon name="attach" size={16} /></button>}
           {session && <>{role === 'admin' && <button className="text-button" aria-expanded={adminOpen} disabled={secondaryBusy} onClick={openAdmin}>Admin</button>}<button className="text-button settings-trigger" aria-expanded={settingsOpen} disabled={secondaryBusy} onClick={() => toggleSecondary('settings')}><Icon name="settings" size={15} />Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></>}
         </nav>}
       </header>
