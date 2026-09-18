@@ -54,6 +54,7 @@ test('a failed request preserves editable question input', async () => {
   fireEvent.click(screen.getByText('Ask SprintX')); await screen.findByRole('alert');
   expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).value).toBe('Keep this question');
   expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).disabled).toBe(false);
+  expect(screen.getByRole('button', { name: 'Collapse composer' })).toBeTruthy();
 });
 
 test('composer collapses without losing unsent draft fields', async () => {
@@ -136,11 +137,12 @@ test('a successful request has one answer in the timeline and clears only the se
   render(<App />); await screen.findByText('Conversation: Latest');
   fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Services?' } }); fireEvent.click(screen.getByText('Ask SprintX'));
   await screen.findByText('Single timeline answer'); expect(screen.getAllByText('Single timeline answer')).toHaveLength(1);
-  expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).value).toBe('');
   const latest = screen.getByRole('link', { name: 'Latest response' }) as HTMLAnchorElement;
   expect(latest.getAttribute('href')).toBe('#latest-message');
   expect(document.querySelector('#latest-message')?.textContent).toContain('Single timeline answer');
-  expect(screen.getByRole('button', { name: 'Expand composer' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Expand composer' }));
+  expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).value).toBe('');
+  expect(screen.getByRole('button', { name: 'Collapse composer' })).toBeTruthy();
 });
 test('token refresh preserves the selected thread', async () => {
   render(<App />); await screen.findByText('Conversation: Latest');
