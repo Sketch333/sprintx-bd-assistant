@@ -79,8 +79,8 @@ test('attach back opens the side panel in the source window and closes only the 
   const presentation = await import('../src/presentation');
   await presentation.attachPresentationToBrowser('chrome-extension://unit/index.html?popout=1&sourceWindowId=12');
   expect(chrome.sidePanel.open).toHaveBeenCalledWith({ windowId: 12 });
-  expect(chrome.windows.remove).toHaveBeenCalledWith(12).not;
-  expect(chrome.windows.remove).toHaveBeenCalledWith(12);
+  expect(chrome.windows.remove).toHaveBeenCalledWith(44);
+  expect(chrome.windows.remove).not.toHaveBeenCalledWith(12);
 });
 
 
