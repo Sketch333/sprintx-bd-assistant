@@ -55,6 +55,12 @@ const trustedWindow = () => chrome.windows.create({ url: chrome.runtime.getURL('
 const validAppearance = (value) => value && typeof value === 'object' && Object.keys(value).length === 2 && (value.theme === 'light' || value.theme === 'dark') && (value.accent === null || (typeof value.accent === 'string' && /^#[\da-f]{6}$/i.test(value.accent)));
 
 async function openFloatingOverlay(sourceWindowId) {
+  const stalePopout = (await chrome.storage.session.get(POPOUT_SESSION_KEY))[POPOUT_SESSION_KEY];
+  if (Number.isInteger(stalePopout?.popupWindowId)) {
+    await chrome.windows.remove(stalePopout.popupWindowId).catch(() => undefined);
+    await chrome.storage.session.remove(POPOUT_SESSION_KEY);
+  }
+
   const [tab] = await chrome.tabs.query({ active: true, windowId: sourceWindowId });
   if (!Number.isInteger(tab?.id)) return { ok: false, error: 'No active webpage is available for SprintX.' };
 
