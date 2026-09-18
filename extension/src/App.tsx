@@ -191,16 +191,21 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
 
   useEffect(() => {
     if (!session?.access_token || !presentationStateReady || !extensionPresentation) return;
+    const snapshot = {
+      userId: session.user.id,
+      conversationId,
+      question,
+      mode,
+      composerExpanded,
+      askMode,
+      draft,
+    };
+    if (presentationMode === 'framed') {
+      void savePresentationWorkspaceState(snapshot);
+      return;
+    }
     const timer = window.setTimeout(() => {
-      void savePresentationWorkspaceState({
-        userId: session.user.id,
-        conversationId,
-        question,
-        mode,
-        composerExpanded,
-        askMode,
-        draft,
-      });
+      void savePresentationWorkspaceState(snapshot);
     }, 120);
     return () => window.clearTimeout(timer);
   }, [session?.access_token, presentationStateReady, extensionPresentation, conversationId, question, mode, composerExpanded, askMode, draft]);
@@ -605,7 +610,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
         </div>
         {(session || extensionPresentation) && <nav className="header-actions" aria-label="Workspace">
           {presentationMode === 'side-panel' && <button className="icon-button presentation-button" type="button" aria-label="Float SprintX over page" title="Float SprintX over page" disabled={presentationBusy} onClick={handlePopOutPresentation}><Icon name="popout" size={16} /></button>}
-          {(presentationMode === 'popout' || presentationMode === 'framed') && <button className="icon-button presentation-button" type="button" aria-label="Attach SprintX to browser" title="Attach SprintX to browser" disabled={presentationBusy} onClick={handleAttachPresentation}><Icon name="attach" size={16} /></button>}
+          {presentationMode === 'popout' && <button className="icon-button presentation-button" type="button" aria-label="Attach SprintX to browser" title="Attach SprintX to browser" disabled={presentationBusy} onClick={handleAttachPresentation}><Icon name="attach" size={16} /></button>}
           {session && <>{role === 'admin' && <button className="text-button" aria-expanded={adminOpen} disabled={secondaryBusy} onClick={openAdmin}>Admin</button>}<button className="text-button settings-trigger" aria-expanded={settingsOpen} disabled={secondaryBusy} onClick={() => toggleSecondary('settings')}><Icon name="settings" size={15} />Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></>}
         </nav>}
       </header>
