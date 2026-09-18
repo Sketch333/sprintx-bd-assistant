@@ -15,7 +15,7 @@ export interface PresentationWorkspaceState {
 const WORKSPACE_STATE_KEY = 'sprintx:presentation-workspace';
 
 function chromeExtensionAvailable(): boolean {
-  return typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id) && window.location.protocol === 'chrome-extension:';
+  return typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id);
 }
 
 export function resolvePresentationMode(href = window.location.href, framed = window.top !== window): PresentationMode {
@@ -68,8 +68,8 @@ export async function clearPresentationWorkspaceState(): Promise<void> {
   await chrome.storage.session.remove(WORKSPACE_STATE_KEY);
 }
 
-export async function popOutPresentation(): Promise<{ detached: boolean }> {
-  if (!chromeExtensionAvailable() || getPresentationMode() !== 'side-panel') throw new Error('SprintX can only pop out from its Chrome side panel.');
+export async function popOutPresentation(href = window.location.href): Promise<{ detached: boolean }> {
+  if (!chromeExtensionAvailable() || resolvePresentationMode(href, false) !== 'side-panel') throw new Error('SprintX can only pop out from its Chrome side panel.');
   const current = await chrome.windows.getCurrent();
   if (!Number.isInteger(current.id)) throw new Error('The current browser window is unavailable.');
   const response = await chrome.runtime.sendMessage({ type: 'sprintx:pop-out', sourceWindowId: current.id }) as { ok?: boolean } | undefined;
@@ -86,9 +86,9 @@ export async function popOutPresentation(): Promise<{ detached: boolean }> {
   return { detached };
 }
 
-export async function attachPresentationToBrowser(): Promise<void> {
-  if (!chromeExtensionAvailable() || getPresentationMode() !== 'popout') throw new Error('SprintX is not running in a pop-out window.');
-  const sourceWindowId = Number(new URL(window.location.href).searchParams.get('sourceWindowId'));
+export async function attachPresentationToBrowser(href = window.location.href): Promise<void> {
+  if (!chromeExtensionAvailable() || resolvePresentationMode(href, false) !== 'popout') throw new Error('SprintX is not running in a pop-out window.');
+  const sourceWindowId = Number(new URL(href).searchParams.get('sourceWindowId'));
   if (!Number.isInteger(sourceWindowId) || sourceWindowId < 0) throw new Error('The original browser window is unavailable.');
 
   await chrome.sidePanel.open({ windowId: sourceWindowId });
