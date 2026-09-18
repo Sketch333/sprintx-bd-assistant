@@ -67,7 +67,7 @@ test('workspace presentation state round-trips through extension session storage
 test('pop out asks the background to create a popup for the current browser window', async () => {
   const chrome = installChrome();
   const presentation = await import('../src/presentation');
-  await expect(presentation.popOutPresentation()).resolves.toEqual({ detached: true });
+  await expect(presentation.popOutPresentation('chrome-extension://unit/index.html')).resolves.toEqual({ detached: true });
   expect(chrome.windows.getCurrent).toHaveBeenCalledTimes(1);
   expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:pop-out', sourceWindowId: 12 });
   expect(chrome.sidePanel.close).toHaveBeenCalledWith({ windowId: 12 });
@@ -76,9 +76,8 @@ test('pop out asks the background to create a popup for the current browser wind
 test('attach back opens the side panel in the source window and closes only the popup window', async () => {
   const chrome = installChrome();
   chrome.windows.getCurrent.mockResolvedValue({ id: 44, type: 'popup' });
-  window.history.replaceState({}, '', '/?popout=1&sourceWindowId=12');
   const presentation = await import('../src/presentation');
-  await presentation.attachPresentationToBrowser();
+  await presentation.attachPresentationToBrowser('chrome-extension://unit/index.html?popout=1&sourceWindowId=12');
   expect(chrome.sidePanel.open).toHaveBeenCalledWith({ windowId: 12 });
   expect(chrome.windows.remove).toHaveBeenCalledWith(12).not;
   expect(chrome.windows.remove).toHaveBeenCalledWith(12);
@@ -89,7 +88,7 @@ test('pop out remains available on Chrome versions without sidePanel.close', asy
   const chrome = installChrome();
   delete chrome.sidePanel.close;
   const presentation = await import('../src/presentation');
-  await expect(presentation.popOutPresentation()).resolves.toEqual({ detached: false });
+  await expect(presentation.popOutPresentation('chrome-extension://unit/index.html')).resolves.toEqual({ detached: false });
   expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:pop-out', sourceWindowId: 12 });
 });
 
