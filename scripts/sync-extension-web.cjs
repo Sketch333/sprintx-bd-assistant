@@ -1,4 +1,4 @@
-const { cpSync, existsSync, mkdirSync, rmSync, copyFileSync } = require('node:fs');
+const { cpSync, existsSync, mkdirSync, copyFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 
 const root = resolve(__dirname, '..');
@@ -12,8 +12,8 @@ for (const required of ['index.html', 'assets']) {
 
 mkdirSync(publicDir, { recursive: true });
 
-rmSync(resolve(publicDir, 'assets'), { recursive: true, force: true });
-cpSync(resolve(extensionDist, 'assets'), resolve(publicDir, 'assets'), { recursive: true });
+mkdirSync(resolve(publicDir, 'assets'), { recursive: true });
+cpSync(resolve(extensionDist, 'assets'), resolve(publicDir, 'assets'), { recursive: true, force: true });
 copyFileSync(resolve(extensionDist, 'index.html'), resolve(publicDir, 'index.html'));
 
 for (const asset of ['favicon.svg']) {
