@@ -226,6 +226,15 @@ h2 { font-size: 17px; font-weight: 720; letter-spacing: -.025em; margin-bottom: 
 }
 .icon-button:hover:not(:disabled), .icon-button[aria-expanded="true"] { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); color: var(--accent); }
 .icon-button:active:not(:disabled) { transform: scale(.96); }
+.presentation-button {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line));
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+.presentation-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
 .latest-icon { color: var(--accent); }
 .sr-only { clip: rect(0, 0, 0, 0); clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
 
@@ -492,4 +501,23 @@ textarea:focus, input:focus, select:focus { border-color: color-mix(in srgb, var
 @media (forced-colors: active) {
   .tab.active, .conversation-item.active, .message-action, .composer, .card, .sources, .user-message { border: 1px solid CanvasText; }
   .brand-symbol svg rect { fill: Highlight; }
+}
+
+
+:root[data-presentation="popout"] .shell {
+  max-width: none;
+}
+
+:root[data-presentation="popout"] .header {
+  -webkit-app-region: no-drag;
+}
+
+@media (max-width: 390px) {
+  .presentation-button {
+    height: 30px;
+    width: 30px;
+  }
+  .header-actions {
+    gap: 1px;
+  }
 }
