@@ -8,6 +8,7 @@ import { Sources } from './components/Sources';
 import { AppearanceSettings, useAppearance } from './components/AppearanceSettings';
 import { BrandMark } from './components/BrandMark';
 import { Icon } from './components/Icon';
+import { attachPresentationToBrowser, getPresentationMode, popOutPresentation, readPresentationWorkspaceState, savePresentationWorkspaceState } from './presentation';
 import type { AskMode, Conversation, ConversationMessage, DraftInput, ProvisionedUser } from './types';
 
 const GENERIC_CONVERSATION_TITLES = new Set(['New conversation', 'SprintX workspace']);
@@ -68,6 +69,8 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   const appearance = useAppearance();
   const { supabase, signInWithGoogle } = auth;
   const session = currentSession;
+  const presentationMode = getPresentationMode();
+  const extensionPresentation = presentationMode === 'side-panel' || presentationMode === 'popout';
   const mounted = useRef(true);
   const driveSyncAbort = useRef<AbortController | null>(null);
   useEffect(() => () => { driveSyncAbort.current?.abort(); }, []);
@@ -100,6 +103,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   const setHistoryOpen = (open: boolean) => setSecondaryView(open ? 'history' : null);
   const setSettingsOpen = (open: boolean) => setSecondaryView(open ? 'settings' : null);
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [presentationStateReady, setPresentationStateReady] = useState(false);
   const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string>();
   const [geminiKey, setGeminiKeyValue] = useState('');
   const [keyConfigured, setKeyConfigured] = useState(false);
@@ -113,6 +117,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   const latestAssistantId = [...conversationMessages].reverse().find((message) => message.role === 'assistant')?.id;
   const composerBusy = asking || drafting || historyBusy;
   const secondaryBusy = adminBusy || savingKey || historyBusy;
+  const presentationBusy = secondaryBusy || asking || drafting;
   useEffect(() => {
     if (!composerExpanded || !pendingComposerFocus) return;
     const target = document.getElementById(pendingComposerFocus);
@@ -121,6 +126,10 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     setPendingComposerFocus(null);
   }, [composerExpanded, mode, pendingComposerFocus]);
   useEffect(() => { if (!settingsOpen) setGeminiKeyValue(''); }, [settingsOpen]);
+  useEffect(() => {
+    document.documentElement.dataset.presentation = presentationMode;
+    return () => { delete document.documentElement.dataset.presentation; };
+  }, [presentationMode]);
   function toggleSecondary(view: 'history' | 'settings' | 'admin') {
     if (secondaryBusy) return;
     setSecondaryView((current) => current === view ? null : view);
@@ -129,30 +138,70 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   useEffect(() => {
     if (!session?.access_token) {
       setConversationId(undefined);
+      setPresentationStateReady(false);
       return;
     }
+
     let active = true;
-    listConversations(session.access_token)
-      .then(async ({ conversations }) => {
+    (async () => {
+      try {
+        const restored = await readPresentationWorkspaceState();
+        const listed = await listConversations(session.access_token);
         if (!active) return;
-        setConversations(conversations);
-        const latest = conversations[0] ?? (await createConversation(session.access_token, 'SprintX workspace')).conversation;
-        if (!active) return;
-        const { messages } = await getConversationMessages(session.access_token, latest.id);
-        if (active) {
-          setConversationId(latest.id);
-          setConversationTitle(latest.title);
-          setConversationMessages(messages);
-          if (!conversations.length) setConversations([latest]);
+
+        let available = listed.conversations;
+        let selected = restored?.conversationId
+          ? available.find((conversation) => conversation.id === restored.conversationId)
+          : undefined;
+
+        if (!selected) selected = available[0];
+        if (!selected) {
+          selected = (await createConversation(session.access_token, 'SprintX workspace')).conversation;
+          available = [selected];
         }
-      })
-      .catch((conversationError) => {
-        if (active) setError(conversationError instanceof Error ? conversationError.message : 'Conversation history is unavailable.');
-      });
-    return () => {
-      active = false;
-    };
+        if (!active) return;
+
+        const { messages } = await getConversationMessages(session.access_token, selected.id);
+        if (!active) return;
+
+        setConversations(available);
+        setConversationId(selected.id);
+        setConversationTitle(selected.title);
+        setConversationMessages(messages);
+
+        if (restored) {
+          setQuestion(restored.question);
+          setMode(restored.mode);
+          setComposerExpanded(restored.composerExpanded);
+          setAskMode(restored.askMode);
+          setDraft(restored.draft);
+        }
+        setPresentationStateReady(true);
+      } catch (conversationError) {
+        if (active) {
+          setPresentationStateReady(true);
+          setError(conversationError instanceof Error ? conversationError.message : 'Conversation history is unavailable.');
+        }
+      }
+    })();
+
+    return () => { active = false; };
   }, [session?.user.id]);
+
+  useEffect(() => {
+    if (!session?.access_token || !presentationStateReady || !extensionPresentation) return;
+    const timer = window.setTimeout(() => {
+      void savePresentationWorkspaceState({
+        conversationId,
+        question,
+        mode,
+        composerExpanded,
+        askMode,
+        draft,
+      });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [session?.access_token, presentationStateReady, extensionPresentation, conversationId, question, mode, composerExpanded, askMode, draft]);
 
   function maybeAutoTitleConversation(seed: string) {
     if (!session?.access_token || !conversationId || !GENERIC_CONVERSATION_TITLES.has(conversationTitle)) return;
@@ -516,6 +565,33 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     openComposer(nextMode, nextMode === 'ask' ? 'question' : 'audience');
   }
 
+  function workspacePresentationState() {
+    return { conversationId, question, mode, composerExpanded, askMode, draft };
+  }
+
+  async function handlePopOutPresentation() {
+    if (presentationBusy) return;
+    setError('');
+    try {
+      await savePresentationWorkspaceState(workspacePresentationState());
+      const { detached } = await popOutPresentation();
+      if (!detached) setFeedback('Pop-out opened. This Chrome version keeps the original side panel open.');
+    } catch (presentationError) {
+      setError(presentationError instanceof Error ? presentationError.message : 'Could not pop out SprintX.');
+    }
+  }
+
+  async function handleAttachPresentation() {
+    if (presentationBusy) return;
+    setError('');
+    void savePresentationWorkspaceState(workspacePresentationState());
+    try {
+      await attachPresentationToBrowser();
+    } catch (presentationError) {
+      setError(presentationError instanceof Error ? presentationError.message : 'Could not attach SprintX to the browser.');
+    }
+  }
+
 
   return (
     <main className="shell">
@@ -524,7 +600,11 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
           <BrandMark />
           <span className="header-product">BD Assistant</span>
         </div>
-        {session && <nav className="header-actions" aria-label="Workspace">{role === 'admin' && <button className="text-button" aria-expanded={adminOpen} disabled={secondaryBusy} onClick={openAdmin}>Admin</button>}<button className="text-button settings-trigger" aria-expanded={settingsOpen} disabled={secondaryBusy} onClick={() => toggleSecondary('settings')}><Icon name="settings" size={15} />Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></nav>}
+        {(session || extensionPresentation) && <nav className="header-actions" aria-label="Workspace">
+          {presentationMode === 'side-panel' && <button className="icon-button presentation-button" type="button" aria-label="Pop out SprintX" title="Pop out SprintX" disabled={presentationBusy} onClick={handlePopOutPresentation}><Icon name="popout" size={16} /></button>}
+          {presentationMode === 'popout' && <button className="icon-button presentation-button" type="button" aria-label="Attach SprintX to browser" title="Attach SprintX to browser" disabled={presentationBusy} onClick={handleAttachPresentation}><Icon name="attach" size={16} /></button>}
+          {session && <>{role === 'admin' && <button className="text-button" aria-expanded={adminOpen} disabled={secondaryBusy} onClick={openAdmin}>Admin</button>}<button className="text-button settings-trigger" aria-expanded={settingsOpen} disabled={secondaryBusy} onClick={() => toggleSecondary('settings')}><Icon name="settings" size={15} />Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></>}
+        </nav>}
       </header>
 
       {!session ? (
