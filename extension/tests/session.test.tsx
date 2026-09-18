@@ -83,6 +83,17 @@ test('switching from Draft through a suggestion expands Ask and focuses the ques
   await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Your question')));
   expect((screen.getByLabelText('Your question') as HTMLTextAreaElement).value).toBe('What services does SprintX offer?');
 });
+
+test('quick Ask exits a secondary view and restores the expanded composer', async () => {
+  render(<App />); await screen.findByText('Conversation: Latest');
+  fireEvent.click(screen.getByText('Settings'));
+  expect(screen.queryByRole('region', { name: 'Message composer' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Ask a question' }));
+  const composer = await screen.findByRole('region', { name: 'Message composer' });
+  expect(composer).toBeTruthy();
+  expect(screen.queryByLabelText('Replace key')).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Your question')));
+});
 test('saved answers group duplicate evidence without renumbering citations and reject unsafe links', async () => {
   fixtures.messages.mockResolvedValue({ messages: [{ id: 'saved', conversationId: 'Latest', role: 'assistant', content: 'Evidence [1] [2] [3]', citations: [
     { title: 'Services', path: '/services', url: 'https://example.test/services', snippet: 'First excerpt' },
