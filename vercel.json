@@ -1,4 +1,7 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm --prefix extension ci --include=dev && npm run extension:build",
+  "outputDirectory": "extension/dist",
   "rewrites": [
     {
       "source": "/api/(.*)",
@@ -12,6 +15,5 @@
       "source": "/",
       "destination": "/index.html"
     }
-  ],
-  "buildCommand": "npm run vercel-build"
+  ]
 }
