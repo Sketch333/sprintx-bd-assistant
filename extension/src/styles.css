@@ -113,7 +113,7 @@ h2 { font-size: 18px; font-weight: 650; letter-spacing: -.02em; margin-bottom: 1
 .composer-heading { align-items: center; display: flex; flex-shrink: 0; gap: 8px; justify-content: space-between; margin-bottom: 7px; }
 .composer-heading-actions { align-items: center; display: flex; gap: 6px; min-width: 0; }
 .composer-toggle { flex-shrink: 0; font-size: 14px; height: 26px; width: 26px; }
-.composer-body { display: flex; flex-direction: column; gap: 7px; min-height: 0; overflow: hidden; }
+.composer-body { display: flex; flex: 1; flex-direction: column; gap: 7px; min-height: 0; overflow: hidden; }
 .composer.collapsed { max-height: none; padding: 7px 9px; }
 .composer.collapsed .composer-heading { margin-bottom: 0; }
 .composer-hint { color: var(--muted); font-size: 10px; line-height: 1.5; }
@@ -123,9 +123,9 @@ h2 { font-size: 18px; font-weight: 650; letter-spacing: -.02em; margin-bottom: 1
 .ask-form, .draft-fields { display: grid; gap: 7px; }
 .ask-form { margin-bottom: 0; }
 .settings-card .ask-form { margin-bottom: 16px; }
-.draft-form { min-height: 0; overflow: hidden; }
+.draft-form { display: flex; flex: 1; flex-direction: column; gap: 7px; min-height: 0; overflow: hidden; }
 .draft-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
-.draft-scroll { max-height: min(44dvh, 320px); overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; scrollbar-width: thin; }
+.draft-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; scrollbar-width: thin; }
 label { font-size: 12px; font-weight: 600; }
 textarea, input, select { background: var(--surface); border: 1px solid var(--line); border-radius: 7px; color: var(--ink); padding: 10px 12px; width: 100%; min-width: 0; font-size: 13px; }
 textarea { resize: vertical; line-height: 1.45; min-height: 54px; }
@@ -154,6 +154,5 @@ textarea:focus, input:focus, select:focus { border-color: var(--accent); }
   .conversation-actions { align-self: flex-end; }
   .admin-actions { grid-template-columns: 1fr; }
 }
-@media (max-height: 600px) { .draft-scroll { max-height: 38dvh; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 @media (forced-colors: active) { .tab.active, .conversation-item.active { outline: 1px solid Highlight; } .source, .composer { border-color: CanvasText; } }
