@@ -32,8 +32,10 @@ const routes = vercel.routes ?? [];
 if (!routes.some((route) => route.src === '/api/(.*)' && route.dest === '/api/index.ts')) {
   throw new Error('Vercel API routing is missing.');
 }
-if (!routes.some((route) => route.src === '/' && route.dest === '/index.html')) {
-  throw new Error('The web preview must own the canonical root route.');
+const indexRedirect = routes.find((route) => route.src === '/index.html' && route.status === 308 && route.headers?.Location === '/');
+const spaFallback = routes.find((route) => route.src === '/(.*)' && route.dest === '/index.html');
+if (!indexRedirect || !spaFallback) {
+  throw new Error('The web preview must redirect /index.html to / and use an SPA fallback to /index.html.');
 }
 
 console.log('Verified dedicated web-preview architecture.');
