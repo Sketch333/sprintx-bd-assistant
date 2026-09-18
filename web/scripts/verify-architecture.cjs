@@ -18,9 +18,11 @@ if (!entry.includes("../../extension/src/App") || !entry.includes("../../extensi
 }
 
 const vercel = JSON.parse(readFileSync(resolve(repoRoot, 'vercel.json'), 'utf8'));
-const buildSources = new Set((vercel.builds ?? []).map((build) => build.src));
-if (!buildSources.has('web/package.json') || !buildSources.has('api/index.ts')) {
-  throw new Error('Vercel must build web/package.json and api/index.ts as separate targets.');
+const builds = vercel.builds ?? [];
+const staticBuild = builds.find((build) => build.src === 'package.json' && build.use === '@vercel/static-build');
+const apiBuild = builds.find((build) => build.src === 'api/index.ts' && build.use === '@vercel/node');
+if (!staticBuild || staticBuild.config?.distDir !== 'web/dist' || !apiBuild) {
+  throw new Error('Vercel must publish web/dist from the root static builder and build api/index.ts separately.');
 }
 if ('outputDirectory' in vercel || 'buildCommand' in vercel) {
   throw new Error('Do not collapse the web preview back into a root outputDirectory/buildCommand deployment.');
