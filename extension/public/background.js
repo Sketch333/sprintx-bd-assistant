@@ -53,6 +53,51 @@ const serial = (tabId, action) => {
 };
 const trustedWindow = () => chrome.windows.create({ url: chrome.runtime.getURL('index.html?fallback=1'), type: 'popup', width: 460, height: 720 });
 const validAppearance = (value) => value && typeof value === 'object' && Object.keys(value).length === 2 && (value.theme === 'light' || value.theme === 'dark') && (value.accent === null || (typeof value.accent === 'string' && /^#[\da-f]{6}$/i.test(value.accent)));
+
+async function openFloatingOverlay(sourceWindowId) {
+  const [tab] = await chrome.tabs.query({ active: true, windowId: sourceWindowId });
+  if (!Number.isInteger(tab?.id)) return { ok: false, error: 'No active webpage is available for SprintX.' };
+
+  const target = { tabId: tab.id, frameIds: [0] };
+  try {
+    const existing = await chrome.scripting.executeScript({
+      target,
+      func: () => Boolean(globalThis.__sprintxOverlay?.showExisting?.()),
+    });
+    if (existing?.[0]?.result === true) return { ok: true, tabId: tab.id };
+
+    const injected = await chrome.scripting.executeScript({ target, files: ['overlay.js'] });
+    const topDocument = injected?.find((result) => result.frameId === 0);
+    if (!topDocument?.documentId) return { ok: false, error: 'SprintX could not bind to the active page.' };
+
+    const sampled = await chrome.scripting.executeScript({
+      target,
+      func: () => globalThis.__sprintxOverlay?.sampleAppearance?.() ?? { theme: 'light', accent: null },
+    });
+    const appearance = validAppearance(sampled?.[0]?.result) ? sampled[0].result : { theme: 'light', accent: null };
+    const nonce = crypto.randomUUID();
+    await chrome.storage.session.set({
+      [keyFor(tab.id)]: {
+        nonce,
+        topDocumentId: topDocument.documentId,
+        expiresAt: Date.now() + 30000,
+        appearance,
+      },
+    });
+
+    await chrome.scripting.executeScript({
+      target,
+      func: (value) => globalThis.__sprintxOverlay?.invoke?.(value),
+      args: [nonce],
+    });
+    return { ok: true, tabId: tab.id };
+  } catch {
+    return {
+      ok: false,
+      error: 'SprintX cannot float on this page. Chrome blocks page injection on browser-internal and other restricted pages.',
+    };
+  }
+}
 const frameURL = (nonce) => chrome.runtime.getURL(`index.html?overlay=${encodeURIComponent(nonce)}`);
 async function liveFrame(record, sender) {
   if (!record || sender.id !== chrome.runtime.id || !sender.tab || sender.frameId <= 0 || !sender.documentId || sender.url !== frameURL(record.nonce)) return false;
@@ -73,6 +118,12 @@ async function handleMessage(message, sender) {
       && Number.isInteger(message.sourceWindowId)
       && sender.url === chrome.runtime.getURL('index.html')) {
     return openPopout(message.sourceWindowId);
+  }
+  if (message.type === 'sprintx:float-over-page'
+      && Object.keys(message).length === 2
+      && Number.isInteger(message.sourceWindowId)
+      && sender.url === chrome.runtime.getURL('index.html')) {
+    return openFloatingOverlay(message.sourceWindowId);
   }
   if (!sender.tab || !Number.isInteger(sender.tab.id)) return { authorized: false };
   const key = keyFor(sender.tab.id);
@@ -100,6 +151,20 @@ async function handleMessage(message, sender) {
   return { ok: false };
 }
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  // The attach control lives in the isolated top-frame overlay. Open the side panel
+  // immediately in the originating click gesture; the page itself cannot call this API.
+  if (message?.type === 'sprintx:attach-overlay'
+      && sender.id === chrome.runtime.id
+      && sender.tab
+      && sender.frameId === 0
+      && typeof message.nonce === 'string'
+      && Object.keys(message).length === 2) {
+    chrome.sidePanel.open({ tabId: sender.tab.id }).then(
+      () => respond({ ok: true }),
+      () => respond({ ok: false, error: 'SprintX could not attach to the browser side panel.' }),
+    );
+    return true;
+  }
   serial(sender.tab?.id ?? 'trusted', () => handleMessage(message, sender)).then(respond, () => respond({ authorized: false, ok: false }));
   return true;
 });
