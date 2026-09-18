@@ -2,7 +2,18 @@ import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftR
 import type { AskMode } from './types';
 import type { DriveSyncResult } from './drive-sync';
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '');
+export function resolveApiBaseUrl(configured = import.meta.env.VITE_API_BASE_URL, href = window.location.href): string {
+  const explicit = typeof configured === 'string' ? configured.trim() : '';
+  if (explicit) return explicit.replace(/\/$/, '');
+  try {
+    const url = new URL(href);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : '';
+  } catch {
+    return '';
+  }
+}
+
+const apiBaseUrl = resolveApiBaseUrl();
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
