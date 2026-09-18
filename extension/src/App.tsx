@@ -545,7 +545,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
             </div>}
             {(asking || drafting) && <p className="working" role="status">{asking ? 'Researching SprintX knowledge…' : 'Shaping your draft…'}</p>}
           </section>
-          <section className={composerExpanded ? 'composer' : 'composer collapsed'} aria-label="Message composer">
+          <section className={`composer${mode === 'draft' ? ' composer-draft' : ''}${composerExpanded ? '' : ' collapsed'}`} aria-label="Message composer">
           <div className="composer-heading"><div className="tabs" role="group" aria-label="Assistant mode">
             <button className={mode === 'ask' ? 'tab active' : 'tab'} aria-pressed={mode === 'ask'} disabled={composerBusy} onClick={() => focusComposer('ask')} type="button">Ask</button>
             <button className={mode === 'draft' ? 'tab active' : 'tab'} aria-pressed={mode === 'draft'} disabled={composerBusy} onClick={() => focusComposer('draft')} type="button">Draft</button>
@@ -595,7 +595,9 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
             <label htmlFor="context">Additional context (optional)</label>
             <textarea id="context" value={draft.context} onChange={(event) => setDraft({ ...draft, context: event.target.value })} placeholder="Mention a relevant challenge or offer..." rows={3} />
             </fieldset>
-            <button className="primary-button full draft-submit" type="submit" disabled={drafting || asking || historyBusy || !conversationId || !draft.audience.trim() || !draft.objective.trim()}><Icon name="draft" size={16} />{drafting ? 'Writing...' : 'Create draft'}</button>
+            <div className="draft-footer" data-testid="draft-footer">
+              <button className="primary-button full draft-submit" type="submit" disabled={drafting || asking || historyBusy || !conversationId || !draft.audience.trim() || !draft.objective.trim()}><Icon name="draft" size={16} />{drafting ? 'Writing...' : 'Create draft'}</button>
+            </div>
           </form>}
           </div>}
           </section></>}
