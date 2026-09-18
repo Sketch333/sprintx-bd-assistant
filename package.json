@@ -44,5 +44,8 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
     "@vercel/node": "^13.0.1"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }
