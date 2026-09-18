@@ -100,12 +100,10 @@ async function openFloatingOverlay(sourceWindowId) {
 }
 const frameURL = (nonce) => chrome.runtime.getURL(`index.html?overlay=${encodeURIComponent(nonce)}`);
 async function liveFrame(record, sender) {
-  if (!record || sender.id !== chrome.runtime.id || !sender.tab || sender.frameId <= 0 || !sender.documentId || sender.url !== frameURL(record.nonce)) return false;
-  const [top, child] = await Promise.all([
-    chrome.webNavigation.getFrame({ tabId: sender.tab.id, frameId: 0 }),
-    chrome.webNavigation.getFrame({ tabId: sender.tab.id, frameId: sender.frameId }),
-  ]);
-  return top?.documentId === record.topDocumentId && child?.documentId === sender.documentId && child?.parentFrameId === 0 && child?.url === sender.url;
+  if (!record || sender.id !== chrome.runtime.id || !sender.tab || !Number.isInteger(sender.tab.id) || sender.frameId <= 0 || !sender.documentId) return false;
+  if (sender.url !== frameURL(record.nonce)) return false;
+  const top = await chrome.webNavigation.getFrame({ tabId: sender.tab.id, frameId: 0 }).catch(() => undefined);
+  return top?.documentId === record.topDocumentId;
 }
 async function handleMessage(message, sender) {
   if (!message || sender.id !== chrome.runtime.id) return { authorized: false };
