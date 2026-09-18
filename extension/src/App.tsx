@@ -433,6 +433,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     catch { if (mounted.current) setFeedback('Could not copy. Select the answer text and copy manually.'); }
   }
   function openComposer(nextMode: 'ask' | 'draft', target: 'question' | 'audience' | 'context') {
+    setSecondaryView(null);
     setComposerExpanded(true);
     setMode(nextMode);
     setPendingComposerFocus(target);
