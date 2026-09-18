@@ -65,9 +65,18 @@ export async function popOutPresentation(): Promise<{ detached: boolean }> {
   if (!chromeExtensionAvailable() || getPresentationMode() !== 'side-panel') throw new Error('SprintX can only pop out from its Chrome side panel.');
   const current = await chrome.windows.getCurrent();
   if (!Number.isInteger(current.id)) throw new Error('The current browser window is unavailable.');
-  const response = await chrome.runtime.sendMessage({ type: 'sprintx:pop-out', sourceWindowId: current.id }) as { ok?: boolean; detached?: boolean } | undefined;
+  const response = await chrome.runtime.sendMessage({ type: 'sprintx:pop-out', sourceWindowId: current.id }) as { ok?: boolean } | undefined;
   if (response?.ok !== true) throw new Error('SprintX could not open a pop-out window.');
-  return { detached: response.detached === true };
+
+  let detached = false;
+  const closePanel = (chrome.sidePanel as typeof chrome.sidePanel & { close?: (options: { windowId: number }) => Promise<void> }).close;
+  if (typeof closePanel === 'function') {
+    try {
+      await closePanel.call(chrome.sidePanel, { windowId: current.id! });
+      detached = true;
+    } catch {}
+  }
+  return { detached };
 }
 
 export async function attachPresentationToBrowser(): Promise<void> {
