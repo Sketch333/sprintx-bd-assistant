@@ -63,6 +63,8 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [question, setQuestion] = useState('');
   const [mode, setMode] = useState<'ask' | 'draft'>('ask');
+  const [composerExpanded, setComposerExpanded] = useState(true);
+  const [pendingComposerFocus, setPendingComposerFocus] = useState<'question' | 'audience' | 'context' | null>(null);
   const [askMode, setAskMode] = useState<AskMode>('knowledge');
   const [draft, setDraft] = useState<DraftInput>({
     type: 'cold-email',
@@ -99,6 +101,13 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   const latestAssistantId = [...conversationMessages].reverse().find((message) => message.role === 'assistant')?.id;
   const composerBusy = asking || drafting || historyBusy;
   const secondaryBusy = adminBusy || savingKey || historyBusy;
+  useEffect(() => {
+    if (!composerExpanded || !pendingComposerFocus) return;
+    const target = document.getElementById(pendingComposerFocus);
+    if (!target) return;
+    target.focus();
+    setPendingComposerFocus(null);
+  }, [composerExpanded, mode, pendingComposerFocus]);
   useEffect(() => { if (!settingsOpen) setGeminiKeyValue(''); }, [settingsOpen]);
   function toggleSecondary(view: 'history' | 'settings' | 'admin') {
     if (secondaryBusy) return;
@@ -380,6 +389,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
         { id: `local-user-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'user', content: trimmedQuestion, citations: [], createdAt: new Date().toISOString() },
         { id: `local-assistant-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'assistant', content: response.answer, citations: response.sources, createdAt: new Date().toISOString() },
       ]);
+      setComposerExpanded(false);
     } catch (askError) {
       if (!mounted.current) return;
       if (askError instanceof ApiError && askError.status === 401) {
@@ -408,6 +418,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
       setConversationMessages((current) => [...current,
         { id: `local-draft-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'assistant', content: response.draft, citations: response.sources, createdAt: new Date().toISOString() },
       ]);
+      setComposerExpanded(false);
     } catch (draftError) {
       if (!mounted.current) return;
       if (draftError instanceof ApiError && draftError.status === 401) await supabase.auth.signOut();
@@ -421,18 +432,21 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
     try { await navigator.clipboard.writeText(content); if (mounted.current) setFeedback('Copied to clipboard.'); }
     catch { if (mounted.current) setFeedback('Could not copy. Select the answer text and copy manually.'); }
   }
+  function openComposer(nextMode: 'ask' | 'draft', target: 'question' | 'audience' | 'context') {
+    setComposerExpanded(true);
+    setMode(nextMode);
+    setPendingComposerFocus(target);
+  }
   function stageAnswer(content: string, target: 'ask' | 'draft') {
     if (composerBusy) return;
     const context = content.slice(0, 2000);
-    setMode(target);
     if (target === 'ask') setQuestion(`Refine this response:\n${context}\n\nFocus on: `);
     else setDraft((current) => ({ ...current, context }));
     setFeedback(`Added ${context.length.toLocaleString()} characters${content.length > 2000 ? ' (limited to 2,000 characters)' : ''} to ${target === 'ask' ? 'your question' : 'draft context'}. Review and edit before sending.`);
-    requestAnimationFrame(() => document.getElementById(target === 'ask' ? 'question' : 'context')?.focus());
+    openComposer(target, target === 'ask' ? 'question' : 'context');
   }
   function focusComposer(nextMode: 'ask' | 'draft') {
-    setMode(nextMode);
-    requestAnimationFrame(() => document.getElementById(nextMode === 'ask' ? 'question' : 'audience')?.focus());
+    openComposer(nextMode, nextMode === 'ask' ? 'question' : 'audience');
   }
 
 
@@ -524,15 +538,27 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
               <p className="eyebrow">YOUR KNOWLEDGE, WITH CONTEXT</p>
               <h2>Move the conversation forward.</h2>
               <p className="muted">Research SprintX. Shape the right outreach.</p>
-              <div className="suggestions" aria-label="Suggested questions">{['What services does SprintX offer?', 'How should we position SprintX for a SaaS founder?', 'Which case studies support our AI expertise?'].map((prompt) => <button className="suggestion" type="button" key={prompt} disabled={composerBusy} onClick={() => { setQuestion(prompt); setMode('ask'); document.getElementById('question')?.focus(); }}>{prompt}<span aria-hidden="true">↗</span></button>)}</div>
+              <div className="suggestions" aria-label="Suggested questions">{['What services does SprintX offer?', 'How should we position SprintX for a SaaS founder?', 'Which case studies support our AI expertise?'].map((prompt) => <button className="suggestion" type="button" key={prompt} disabled={composerBusy} onClick={() => { setQuestion(prompt); openComposer('ask', 'question'); }}>{prompt}<span aria-hidden="true">↗</span></button>)}</div>
             </div>}
             {(asking || drafting) && <p className="working" role="status">{asking ? 'Researching SprintX knowledge…' : 'Shaping your draft…'}</p>}
           </section>
-          <section className="composer" aria-label="Message composer">
+          <section className={composerExpanded ? 'composer' : 'composer collapsed'} aria-label="Message composer">
           <div className="composer-heading"><div className="tabs" role="group" aria-label="Assistant mode">
-            <button className={mode === 'ask' ? 'tab active' : 'tab'} aria-pressed={mode === 'ask'} disabled={composerBusy} onClick={() => setMode('ask')} type="button">Ask</button>
-            <button className={mode === 'draft' ? 'tab active' : 'tab'} aria-pressed={mode === 'draft'} disabled={composerBusy} onClick={() => setMode('draft')} type="button">Draft</button>
-          </div>{latestAssistantId ? <a className="text-button latest-link" href="#latest-message">Latest response</a> : <span className="composer-hint">Grounded in SprintX</span>}</div>
+            <button className={mode === 'ask' ? 'tab active' : 'tab'} aria-pressed={mode === 'ask'} disabled={composerBusy} onClick={() => focusComposer('ask')} type="button">Ask</button>
+            <button className={mode === 'draft' ? 'tab active' : 'tab'} aria-pressed={mode === 'draft'} disabled={composerBusy} onClick={() => focusComposer('draft')} type="button">Draft</button>
+          </div><div className="composer-heading-actions">
+            {latestAssistantId ? <a className="text-button latest-link" href="#latest-message">Latest response</a> : <span className="composer-hint">Grounded in SprintX</span>}
+            <button
+              className="icon-button composer-toggle"
+              type="button"
+              aria-expanded={composerExpanded}
+              aria-controls="composer-body"
+              aria-label={composerExpanded ? 'Collapse composer' : 'Expand composer'}
+              title={composerExpanded ? 'Collapse composer' : 'Expand composer'}
+              onClick={() => setComposerExpanded((current) => !current)}
+            >{composerExpanded ? '⌄' : '⌃'}</button>
+          </div></div>
+          {composerExpanded && <div className="composer-body" id="composer-body">
           {feedback && <p className="feedback" role="status">{feedback}</p>}
           {mode === 'ask' ? <form className="ask-form" onSubmit={handleAsk}>
             <label className="sr-only" htmlFor="question">Your question</label>
@@ -547,7 +573,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
               <span className="composer-hint">Ctrl / ⌘ Enter</span>
               <button className="primary-button composer-submit" type="submit" disabled={asking || drafting || historyBusy || !conversationId || !question.trim()}>{asking ? 'Working…' : 'Ask SprintX'}</button>
             </div>
-          </form> : <form className="ask-form" onSubmit={handleDraft}><fieldset disabled={composerBusy} className="draft-fields">
+          </form> : <form className="ask-form draft-form" onSubmit={handleDraft}><fieldset disabled={composerBusy} className="draft-fields draft-scroll" aria-label="Draft fields">
             <label htmlFor="draft-type">Message type</label>
             <select id="draft-type" value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value as DraftInput['type'] })}>
               <option value="cold-email">Cold email</option>
@@ -568,6 +594,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
             </fieldset>
             <button className="primary-button full" type="submit" disabled={drafting || asking || historyBusy || !conversationId || !draft.audience.trim() || !draft.objective.trim()}>{drafting ? 'Writing...' : 'Create draft'}</button>
           </form>}
+          </div>}
           </section></>}
         </>
       )}
