@@ -64,12 +64,12 @@ test('workspace presentation state round-trips through extension session storage
   expect(await presentation.readPresentationWorkspaceState()).toEqual(state);
 });
 
-test('pop out asks the background to create a popup for the current browser window', async () => {
+test('pop out asks the background to float SprintX over the current webpage', async () => {
   const chrome = installChrome();
   const presentation = await import('../src/presentation');
   await expect(presentation.popOutPresentation('chrome-extension://unit/index.html')).resolves.toEqual({ detached: true });
   expect(chrome.windows.getCurrent).toHaveBeenCalledTimes(1);
-  expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:pop-out', sourceWindowId: 12 });
+  expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:float-over-page', sourceWindowId: 12 });
   expect(chrome.sidePanel.close).toHaveBeenCalledWith({ windowId: 12 });
 });
 
@@ -84,12 +84,12 @@ test('attach back opens the side panel in the source window and closes only the 
 });
 
 
-test('pop out remains available on Chrome versions without sidePanel.close', async () => {
+test('floating mode remains available on Chrome versions without sidePanel.close', async () => {
   const chrome = installChrome();
   delete chrome.sidePanel.close;
   const presentation = await import('../src/presentation');
   await expect(presentation.popOutPresentation('chrome-extension://unit/index.html')).resolves.toEqual({ detached: false });
-  expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:pop-out', sourceWindowId: 12 });
+  expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:float-over-page', sourceWindowId: 12 });
 });
 
 
