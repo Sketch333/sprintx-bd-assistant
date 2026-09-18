@@ -587,8 +587,8 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   async function handleAttachPresentation() {
     if (presentationBusy) return;
     setError('');
-    void savePresentationWorkspaceState(workspacePresentationState());
     try {
+      await savePresentationWorkspaceState(workspacePresentationState());
       await attachPresentationToBrowser();
     } catch (presentationError) {
       setError(presentationError instanceof Error ? presentationError.message : 'Could not attach SprintX to the browser.');
