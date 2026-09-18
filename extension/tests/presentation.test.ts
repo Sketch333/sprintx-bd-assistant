@@ -21,6 +21,7 @@ function installChrome(overrides: Record<string, unknown> = {}) {
       session: {
         get: vi.fn(async (key: string) => ({ [key]: sessionStore[key] })),
         set: vi.fn(async (values: Record<string, unknown>) => Object.assign(sessionStore, values)),
+        remove: vi.fn(async (key: string) => { delete sessionStore[key]; }),
       },
     },
     ...overrides,
@@ -51,6 +52,7 @@ test('workspace presentation state round-trips through extension session storage
   installChrome();
   const presentation = await import('../src/presentation');
   const state = {
+    userId: 'alice',
     conversationId: 'conversation-1',
     question: 'Unsent question',
     mode: 'draft' as const,
@@ -89,4 +91,21 @@ test('pop out remains available on Chrome versions without sidePanel.close', asy
   const presentation = await import('../src/presentation');
   await expect(presentation.popOutPresentation()).resolves.toEqual({ detached: false });
   expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:pop-out', sourceWindowId: 12 });
+});
+
+
+test('clearing presentation state removes unsent workspace data on sign-out', async () => {
+  installChrome();
+  const presentation = await import('../src/presentation');
+  await presentation.savePresentationWorkspaceState({
+    userId: 'alice',
+    conversationId: 'conversation-1',
+    question: 'Sensitive unsent question',
+    mode: 'ask',
+    composerExpanded: true,
+    askMode: 'knowledge',
+    draft: { type: 'cold-email', audience: '', objective: '', tone: 'professional', length: 'medium', context: '' },
+  });
+  await presentation.clearPresentationWorkspaceState();
+  expect(await presentation.readPresentationWorkspaceState()).toBeNull();
 });
