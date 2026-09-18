@@ -13,6 +13,10 @@ export const supabase = createClient(
   { auth: { autoRefreshToken: true, persistSession: true, storage: window.localStorage } },
 );
 
+export function getWebAuthRedirectUrl(origin = window.location.origin): string {
+  return origin.endsWith('/') ? origin : `${origin}/`;
+}
+
 export async function signInWithGoogle(): Promise<void> {
   const isExtension =
     typeof chrome !== 'undefined' &&
@@ -58,7 +62,7 @@ export async function signInWithGoogle(): Promise<void> {
   } else {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: getWebAuthRedirectUrl() },
     });
     if (error) throw error;
   }
