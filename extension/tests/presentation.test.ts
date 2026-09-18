@@ -15,6 +15,7 @@ function installChrome(overrides: Record<string, unknown> = {}) {
     },
     sidePanel: {
       open: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
     },
     storage: {
       session: {
@@ -67,6 +68,7 @@ test('pop out asks the background to create a popup for the current browser wind
   await expect(presentation.popOutPresentation()).resolves.toEqual({ detached: true });
   expect(chrome.windows.getCurrent).toHaveBeenCalledTimes(1);
   expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:pop-out', sourceWindowId: 12 });
+  expect(chrome.sidePanel.close).toHaveBeenCalledWith({ windowId: 12 });
 });
 
 test('attach back opens the side panel in the source window and closes only the popup window', async () => {
@@ -78,4 +80,13 @@ test('attach back opens the side panel in the source window and closes only the 
   expect(chrome.sidePanel.open).toHaveBeenCalledWith({ windowId: 12 });
   expect(chrome.windows.remove).toHaveBeenCalledWith(12).not;
   expect(chrome.windows.remove).toHaveBeenCalledWith(12);
+});
+
+
+test('pop out remains available on Chrome versions without sidePanel.close', async () => {
+  const chrome = installChrome();
+  delete chrome.sidePanel.close;
+  const presentation = await import('../src/presentation');
+  await expect(presentation.popOutPresentation()).resolves.toEqual({ detached: false });
+  expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:pop-out', sourceWindowId: 12 });
 });
