@@ -184,7 +184,8 @@ test('failed conversation deletion restores the removed history row', async () =
   const olderRow = screen.getByText('Older').closest('.conversation-item') as HTMLElement;
   fireEvent.click(olderRow.querySelector('button.danger-text') as HTMLButtonElement);
   fireEvent.click(screen.getByRole('button', { name: 'Confirm delete Older' }));
-  expect(await screen.findByRole('alert')).toHaveTextContent('Delete failed');
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toContain('Delete failed');
   expect(screen.getByText('Older')).toBeTruthy();
 });
 
