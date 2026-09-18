@@ -18,13 +18,13 @@ function popoutBounds(value) {
 
 async function openPopout(sourceWindowId) {
   const source = await chrome.windows.get(sourceWindowId).catch(() => undefined);
-  if (!source || source.type !== 'normal') return { ok: false, detached: false };
+  if (!source || source.type !== 'normal') return { ok: false };
 
   const active = (await chrome.storage.session.get(POPOUT_SESSION_KEY))[POPOUT_SESSION_KEY];
   if (Number.isInteger(active?.popupWindowId)) {
     try {
       await chrome.windows.update(active.popupWindowId, { focused: true });
-      return { ok: true, detached: active.detached === true };
+      return { ok: true };
     } catch {
       await chrome.storage.session.remove(POPOUT_SESSION_KEY);
     }
@@ -39,18 +39,10 @@ async function openPopout(sourceWindowId) {
   });
   if (!Number.isInteger(popup?.id)) return { ok: false, detached: false };
 
-  let detached = false;
-  if (typeof chrome.sidePanel.close === 'function') {
-    try {
-      await chrome.sidePanel.close({ windowId: sourceWindowId });
-      detached = true;
-    } catch {}
-  }
-
   await chrome.storage.session.set({
-    [POPOUT_SESSION_KEY]: { popupWindowId: popup.id, sourceWindowId, detached },
+    [POPOUT_SESSION_KEY]: { popupWindowId: popup.id, sourceWindowId },
   });
-  return { ok: true, detached };
+  return { ok: true };
 }
 const queues = new Map();
 const serial = (tabId, action) => {
