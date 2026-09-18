@@ -30,7 +30,9 @@ test('real host mounts once, minimizes without unloading, restores, closes and c
   host.scope.__sprintxOverlay.invoke('another');
   expect(host.spy).toHaveBeenCalledTimes(1);
   expect(host.root.querySelector('iframe')).toBe(frame);
-  expect(host.root.querySelector('iframe')?.hidden).toBe(true);
+  expect(host.root.querySelector('iframe')?.hidden).toBe(false);
+  (host.root.querySelector('[aria-label="Minimize SprintX"]') as HTMLElement).click();
+  expect(frame?.hidden).toBe(true);
   (host.root.querySelector('[aria-label="Restore SprintX"]') as HTMLElement).click();
   expect(frame?.hidden).toBe(false);
   (host.root.querySelector('[aria-label="Close SprintX"]') as HTMLElement).click();
