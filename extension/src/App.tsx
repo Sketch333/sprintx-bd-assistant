@@ -10,6 +10,15 @@ import { BrandMark } from './components/BrandMark';
 import { Icon } from './components/Icon';
 import type { AskMode, Conversation, ConversationMessage, DraftInput, ProvisionedUser } from './types';
 
+const GENERIC_CONVERSATION_TITLES = new Set(['New conversation', 'SprintX workspace']);
+
+function conversationTitleFrom(seed: string): string {
+  const normalized = seed.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= 56) return normalized || 'New conversation';
+  const clipped = normalized.slice(0, 53).trimEnd();
+  return `${clipped}…`;
+}
+
 export function App() {
   const [auth, setAuth] = useState<typeof import('./supabase') | null>(null);
   const [denied, setDenied] = useState(false);
@@ -91,6 +100,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   const setHistoryOpen = (open: boolean) => setSecondaryView(open ? 'history' : null);
   const setSettingsOpen = (open: boolean) => setSecondaryView(open ? 'settings' : null);
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string>();
   const [geminiKey, setGeminiKeyValue] = useState('');
   const [keyConfigured, setKeyConfigured] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
@@ -143,6 +153,27 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
       active = false;
     };
   }, [session?.user.id]);
+
+  function maybeAutoTitleConversation(seed: string) {
+    if (!session?.access_token || !conversationId || !GENERIC_CONVERSATION_TITLES.has(conversationTitle)) return;
+    const id = conversationId;
+    const title = conversationTitleFrom(seed);
+    if (!title || GENERIC_CONVERSATION_TITLES.has(title)) return;
+
+    const optimisticUpdatedAt = new Date().toISOString();
+    setConversationTitle(title);
+    setConversations((current) => current.map((item) => item.id === id ? { ...item, title, updatedAt: optimisticUpdatedAt } : item));
+
+    void renameConversation(session.access_token, id, title)
+      .then(({ conversation }) => {
+        if (!mounted.current) return;
+        setConversations((current) => current.map((item) => item.id === conversation.id ? conversation : item));
+        setConversationTitle((current) => current === title ? conversation.title : current);
+      })
+      .catch(() => {
+        if (mounted.current) setFeedback('Message saved, but the conversation title could not be updated.');
+      });
+  }
 
   async function handleNewConversation() {
     if (!session?.access_token) return;
@@ -198,19 +229,36 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   }
 
   async function handleDeleteConversation(conversation: Conversation) {
-    if (!session?.access_token || !window.confirm(`Delete "${conversation.title}"?`)) return;
+    if (!session?.access_token || historyBusy) return;
+    const previousConversations = conversations;
+    const remaining = conversations.filter((item) => item.id !== conversation.id);
+
+    setPendingDeleteConversationId(undefined);
     setHistoryBusy(true);
     setError('');
+    setConversations(remaining);
+
     try {
       await deleteConversation(session.access_token, conversation.id);
-      const remaining = conversations.filter((item) => item.id !== conversation.id);
-      setConversations(remaining);
+
       if (conversation.id === conversationId) {
         const replacement = remaining[0];
-        if (replacement) await handleSelectConversation(replacement);
-        else await handleNewConversation();
+        if (replacement) {
+          const { messages } = await getConversationMessages(session.access_token, replacement.id);
+          setConversationId(replacement.id);
+          setConversationTitle(replacement.title);
+          setConversationMessages(messages);
+        } else {
+          const created = await createConversation(session.access_token, 'New conversation');
+          setConversationId(created.conversation.id);
+          setConversationTitle(created.conversation.title);
+          setConversationMessages([]);
+          setConversations([created.conversation]);
+        }
+        setHistoryOpen(false);
       }
     } catch (conversationError) {
+      setConversations(previousConversations);
       setError(conversationError instanceof Error ? conversationError.message : 'Could not delete conversation.');
     } finally {
       setHistoryBusy(false);
@@ -392,6 +440,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
         { id: `local-assistant-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'assistant', content: response.answer, citations: response.sources, createdAt: new Date().toISOString() },
       ]);
       setComposerExpanded(false);
+      maybeAutoTitleConversation(trimmedQuestion);
     } catch (askError) {
       if (!mounted.current) return;
       if (askError instanceof ApiError && askError.status === 401) {
@@ -421,6 +470,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
         { id: `local-draft-${Date.now()}`, conversationId: conversationId ?? response.conversationId ?? '', role: 'assistant', content: response.draft, citations: response.sources, createdAt: new Date().toISOString() },
       ]);
       setComposerExpanded(false);
+      maybeAutoTitleConversation(`${draft.objective.trim()} for ${draft.audience.trim()}`);
     } catch (draftError) {
       if (!mounted.current) return;
       if (draftError instanceof ApiError && draftError.status === 401) await supabase.auth.signOut();
@@ -524,7 +574,15 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
                 <button className="conversation-select" type="button" onClick={() => handleSelectConversation(conversation)} disabled={historyBusy || asking || drafting}>
                   <strong>{conversation.title}</strong><small>{new Date(conversation.updatedAt).toLocaleString()}</small>
                 </button>
-                <span className="conversation-actions"><button className="text-button" type="button" onClick={() => handleRenameConversation(conversation)} disabled={historyBusy || asking || drafting}>Rename</button><button className="text-button danger-text" type="button" onClick={() => handleDeleteConversation(conversation)} disabled={historyBusy || asking || drafting}>Delete</button></span>
+                <span className="conversation-actions">
+                  {pendingDeleteConversationId === conversation.id ? <>
+                    <button className="text-button danger-text" type="button" aria-label={`Confirm delete ${conversation.title}`} onClick={() => handleDeleteConversation(conversation)} disabled={historyBusy || asking || drafting}>Confirm</button>
+                    <button className="text-button" type="button" aria-label={`Cancel delete ${conversation.title}`} onClick={() => setPendingDeleteConversationId(undefined)} disabled={historyBusy}>Cancel</button>
+                  </> : <>
+                    <button className="text-button" type="button" onClick={() => handleRenameConversation(conversation)} disabled={historyBusy || asking || drafting}>Rename</button>
+                    <button className="text-button danger-text" type="button" onClick={() => setPendingDeleteConversationId(conversation.id)} disabled={historyBusy || asking || drafting}>Delete</button>
+                  </>}
+                </span>
               </div>)}
             </div>}
           </section>}
