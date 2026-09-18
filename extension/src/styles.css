@@ -522,3 +522,25 @@ textarea:focus, input:focus, select:focus { border-color: color-mix(in srgb, var
     gap: 1px;
   }
 }
+
+
+:root[data-presentation="framed"] .shell {
+  max-width: none;
+  min-width: 0;
+  padding: 0 12px 10px;
+}
+
+:root[data-presentation="framed"] .header {
+  justify-content: flex-end;
+  margin: 0 -12px;
+  min-height: 44px;
+  padding: 6px 10px;
+}
+
+:root[data-presentation="framed"] .header-brand {
+  display: none;
+}
+
+:root[data-presentation="framed"] .timeline {
+  padding-top: 14px;
+}
