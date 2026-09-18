@@ -22,6 +22,9 @@ test('real host mounts once, minimizes without unloading, restores, closes and c
   host.scope.__sprintxOverlay.invoke('nonce');
   const frame = host.root.querySelector('iframe');
   expect(frame?.src).toBe('chrome-extension://unit/index.html?overlay=nonce');
+  const shell = host.root.querySelector('section') as HTMLElement;
+  expect(getComputedStyle(shell).resize).toBe('both');
+  expect(host.root.querySelector('[aria-label="Attach SprintX to browser"]')).toBeTruthy();
   expect(host.root.host.shadowRoot).toBeNull();
   host.scope.__sprintxOverlay.invoke('another');
   expect(host.spy).toHaveBeenCalledTimes(1);
@@ -66,7 +69,7 @@ async function background(sharedStore?: any) {
       onBoundsChanged: event('boundsChanged'),
       onRemoved: event('windowRemoved'),
     },
-    tabs: { onRemoved: event('removed'), sendMessage: vi.fn().mockResolvedValue({}) },
+    tabs: { query: vi.fn().mockResolvedValue([{ id: 7, windowId: 9 }]), onRemoved: event('removed'), sendMessage: vi.fn().mockResolvedValue({}) },
     scripting: { executeScript: vi.fn().mockResolvedValue([{ frameId: 0, documentId: 'top-document', result: { existing: false, appearance: { theme: 'light', accent: null } } }]) },
     storage: {
       session: { set: async (values: any) => Object.assign(store, values), get: async (key: string) => ({ [key]: store[key] }), remove: async (key: string) => { delete store[key]; } },
@@ -145,6 +148,32 @@ test('drag captures initiating pointer and releases on up, lost capture and clos
   expect(captured.size).toBe(0);
 });
 
+
+test('side panel can float SprintX over the active webpage without opening a new OS window', async () => {
+  const bg = await background();
+  const response = await bg.message(
+    { type: 'sprintx:float-over-page', sourceWindowId: 9 },
+    { id: 'unit', url: 'chrome-extension://unit/index.html' },
+  );
+  expect(response).toMatchObject({ ok: true, tabId: 7 });
+  expect(bg.chrome.tabs.query).toHaveBeenCalledWith({ active: true, windowId: 9 });
+  expect(bg.chrome.scripting.executeScript).toHaveBeenCalled();
+  expect(bg.chrome.windows.create).not.toHaveBeenCalled();
+  expect(bg.store['overlay:7']).toMatchObject({
+    nonce: 'secure-nonce',
+    topDocumentId: 'top-document',
+  });
+});
+
+test('floating overlay can attach back to the native side panel from its top-frame control', async () => {
+  const bg = await background();
+  const response = await bg.message(
+    { type: 'sprintx:attach-overlay', nonce: 'secure-nonce' },
+    { id: 'unit', tab: { id: 7 }, frameId: 0 },
+  );
+  expect(response).toEqual({ ok: true });
+  expect(bg.chrome.sidePanel.open).toHaveBeenCalledWith({ tabId: 7 });
+});
 
 test('side panel can request a resizable Chrome popup without coupling popup creation to panel close', async () => {
   const bg = await background();
