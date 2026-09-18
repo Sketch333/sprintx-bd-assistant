@@ -6,6 +6,8 @@ import { continueDriveSync } from './drive-sync';
 import { AnswerContent } from './components/AnswerContent';
 import { Sources } from './components/Sources';
 import { AppearanceSettings, useAppearance } from './components/AppearanceSettings';
+import { BrandMark } from './components/BrandMark';
+import { Icon } from './components/Icon';
 import type { AskMode, Conversation, ConversationMessage, DraftInput, ProvisionedUser } from './types';
 
 export function App() {
@@ -454,16 +456,16 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
   return (
     <main className="shell">
       <header className="header">
-        <div>
-          <p className="eyebrow">SPRINTX</p>
-          <h1>BD Assistant</h1>
+        <div className="header-brand">
+          <BrandMark />
+          <span className="header-product">BD Assistant</span>
         </div>
-        {session && <nav className="header-actions" aria-label="Workspace">{role === 'admin' && <button className="text-button" aria-expanded={adminOpen} disabled={secondaryBusy} onClick={openAdmin}>Admin</button>}<button className="text-button" aria-expanded={settingsOpen} disabled={secondaryBusy} onClick={() => toggleSecondary('settings')}>Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></nav>}
+        {session && <nav className="header-actions" aria-label="Workspace">{role === 'admin' && <button className="text-button" aria-expanded={adminOpen} disabled={secondaryBusy} onClick={openAdmin}>Admin</button>}<button className="text-button settings-trigger" aria-expanded={settingsOpen} disabled={secondaryBusy} onClick={() => toggleSecondary('settings')}><Icon name="settings" size={15} />Settings</button><button className="text-button" onClick={handleSignOut}>Sign out</button></nav>}
       </header>
 
       {!session ? (
         <section className="card centered auth-card">
-          <div className="brand-mark">S</div>
+          <div className="auth-brand"><BrandMark /></div>
           <h2>Grounded BD answers</h2>
           <p className="muted">Sign in to ask questions using SprintX knowledge.</p>
           <button className="primary-button full" onClick={handleSignIn} disabled={authenticating}>
@@ -509,10 +511,10 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
               Conversation: {conversationTitle}
             </button>
             <div className="quick-actions" aria-label="Quick navigation">
-              <button className="icon-button" type="button" aria-label="Ask a question" title="Ask a question" onClick={() => focusComposer('ask')} disabled={composerBusy}>＋</button>
-              <button className="icon-button" type="button" aria-label="Open conversation history" title="Conversation history" onClick={() => toggleSecondary('history')} aria-expanded={historyOpen} disabled={secondaryBusy}>☷</button>
-              <button className="icon-button" type="button" aria-label="New conversation" title="New conversation" onClick={handleNewConversation} disabled={historyBusy || asking || drafting || !conversationId}>✦<span className="sr-only">New</span></button>
-              {latestAssistantId && <a className="icon-button latest-icon" href="#latest-message" aria-label="Jump to latest response" title="Latest response">↓</a>}
+              <button className="icon-button" type="button" aria-label="Ask a question" title="Ask a question" onClick={() => focusComposer('ask')} disabled={composerBusy}><Icon name="plus" /></button>
+              <button className="icon-button" type="button" aria-label="Open conversation history" title="Conversation history" onClick={() => toggleSecondary('history')} aria-expanded={historyOpen} disabled={secondaryBusy}><Icon name="history" /></button>
+              <button className="icon-button" type="button" aria-label="New conversation" title="New conversation" onClick={handleNewConversation} disabled={historyBusy || asking || drafting || !conversationId}><Icon name="new" /><span className="sr-only">New</span></button>
+              {latestAssistantId && <a className="icon-button latest-icon" href="#latest-message" aria-label="Jump to latest response" title="Latest response"><Icon name="down" /></a>}
             </div>
           </div>
           {historyOpen && <section className="card history-card">
@@ -527,15 +529,15 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
             </div>}
           </section>}
           {!secondaryView && <><section className="timeline" aria-label="Conversation timeline" aria-busy={composerBusy}>
-            {conversationMessages.length ? conversationMessages.map((message) => <article id={message.id === latestAssistantId ? 'latest-message' : undefined} className={message.role === 'user' ? 'timeline-message user-message' : 'timeline-message'} key={message.id}>
+            {conversationMessages.length ? conversationMessages.map((message) => <article id={message.id === latestAssistantId ? 'latest-message' : undefined} className={message.role === 'user' ? 'timeline-message user-message' : 'timeline-message assistant-message'} key={message.id}>
               <div className="message-heading"><strong>{message.role === 'user' ? 'You' : 'SprintX'}</strong><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
               <AnswerContent content={message.content} />
               {message.role === 'assistant' && <>
                 <Sources sources={message.citations} />
-                <div className="message-actions"><button className="text-button" onClick={() => copyAnswer(message.content)} type="button">Copy</button><button className="text-button" disabled={composerBusy} onClick={() => stageAnswer(message.content, 'ask')} type="button">Refine</button><button className="text-button" disabled={composerBusy} onClick={() => stageAnswer(message.content, 'draft')} type="button">Use in Draft</button></div>
+                <div className="message-actions"><button className="message-action" onClick={() => copyAnswer(message.content)} type="button"><Icon name="copy" size={14} />Copy</button><button className="message-action" disabled={composerBusy} onClick={() => stageAnswer(message.content, 'ask')} type="button"><Icon name="refine" size={14} />Refine</button><button className="message-action" disabled={composerBusy} onClick={() => stageAnswer(message.content, 'draft')} type="button"><Icon name="draft" size={14} />Use in Draft</button></div>
               </>}
             </article>) : <div className="welcome">
-              <div className="workspace-mark" aria-hidden="true">S<span>↗</span></div>
+              <div className="workspace-mark" aria-hidden="true"><BrandMark compact /></div>
               <p className="eyebrow">YOUR KNOWLEDGE, WITH CONTEXT</p>
               <h2>Move the conversation forward.</h2>
               <p className="muted">Research SprintX. Shape the right outreach.</p>
@@ -557,7 +559,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
               aria-label={composerExpanded ? 'Collapse composer' : 'Expand composer'}
               title={composerExpanded ? 'Collapse composer' : 'Expand composer'}
               onClick={() => setComposerExpanded((current) => !current)}
-            >{composerExpanded ? '⌄' : '⌃'}</button>
+            ><Icon name={composerExpanded ? 'chevronDown' : 'chevronUp'} size={16} /></button>
           </div></div>
           {composerExpanded && <div className="composer-body" id="composer-body">
           {feedback && <p className="feedback" role="status">{feedback}</p>}
@@ -572,7 +574,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
             </select>
             <div className="composer-controls">
               <span className="composer-hint">Ctrl / ⌘ Enter</span>
-              <button className="primary-button composer-submit" type="submit" disabled={asking || drafting || historyBusy || !conversationId || !question.trim()}>{asking ? 'Working…' : 'Ask SprintX'}</button>
+              <button className="primary-button composer-submit" type="submit" disabled={asking || drafting || historyBusy || !conversationId || !question.trim()}><Icon name="send" size={15} />{asking ? 'Working…' : 'Ask SprintX'}</button>
             </div>
           </form> : <form className="ask-form draft-form" onSubmit={handleDraft}><fieldset disabled={composerBusy} className="draft-fields draft-scroll" aria-label="Draft fields">
             <label htmlFor="draft-type">Message type</label>
@@ -593,7 +595,7 @@ function SessionWorkspace({ currentSession, auth }: { currentSession: Session | 
             <label htmlFor="context">Additional context (optional)</label>
             <textarea id="context" value={draft.context} onChange={(event) => setDraft({ ...draft, context: event.target.value })} placeholder="Mention a relevant challenge or offer..." rows={3} />
             </fieldset>
-            <button className="primary-button full" type="submit" disabled={drafting || asking || historyBusy || !conversationId || !draft.audience.trim() || !draft.objective.trim()}>{drafting ? 'Writing...' : 'Create draft'}</button>
+            <button className="primary-button full draft-submit" type="submit" disabled={drafting || asking || historyBusy || !conversationId || !draft.audience.trim() || !draft.objective.trim()}><Icon name="draft" size={16} />{drafting ? 'Writing...' : 'Create draft'}</button>
           </form>}
           </div>}
           </section></>}
