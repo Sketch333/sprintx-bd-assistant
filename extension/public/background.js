@@ -2,6 +2,56 @@
 // session storage remains extension-only (never enable TRUSTED_AND_UNTRUSTED_CONTEXTS).
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
 const keyFor = (tabId) => `overlay:${tabId}`;
+const POPOUT_SESSION_KEY = 'sprintx:popout-session';
+const POPOUT_BOUNDS_KEY = 'sprintx:popout-bounds';
+const DEFAULT_POPOUT_BOUNDS = { width: 480, height: 760 };
+
+function popoutBounds(value) {
+  if (!value || typeof value !== 'object') return DEFAULT_POPOUT_BOUNDS;
+  const bounds = {};
+  if (Number.isInteger(value.width) && value.width >= 320 && value.width <= 1200) bounds.width = value.width;
+  if (Number.isInteger(value.height) && value.height >= 420 && value.height <= 1200) bounds.height = value.height;
+  if (Number.isInteger(value.left)) bounds.left = value.left;
+  if (Number.isInteger(value.top)) bounds.top = value.top;
+  return { ...DEFAULT_POPOUT_BOUNDS, ...bounds };
+}
+
+async function openPopout(sourceWindowId) {
+  const source = await chrome.windows.get(sourceWindowId).catch(() => undefined);
+  if (!source || source.type !== 'normal') return { ok: false, detached: false };
+
+  const active = (await chrome.storage.session.get(POPOUT_SESSION_KEY))[POPOUT_SESSION_KEY];
+  if (Number.isInteger(active?.popupWindowId)) {
+    try {
+      await chrome.windows.update(active.popupWindowId, { focused: true });
+      return { ok: true, detached: active.detached === true };
+    } catch {
+      await chrome.storage.session.remove(POPOUT_SESSION_KEY);
+    }
+  }
+
+  const saved = (await chrome.storage.local.get(POPOUT_BOUNDS_KEY))[POPOUT_BOUNDS_KEY];
+  const popup = await chrome.windows.create({
+    url: chrome.runtime.getURL(`index.html?popout=1&sourceWindowId=${sourceWindowId}`),
+    type: 'popup',
+    focused: true,
+    ...popoutBounds(saved),
+  });
+  if (!Number.isInteger(popup?.id)) return { ok: false, detached: false };
+
+  let detached = false;
+  if (typeof chrome.sidePanel.close === 'function') {
+    try {
+      await chrome.sidePanel.close({ windowId: sourceWindowId });
+      detached = true;
+    } catch {}
+  }
+
+  await chrome.storage.session.set({
+    [POPOUT_SESSION_KEY]: { popupWindowId: popup.id, sourceWindowId, detached },
+  });
+  return { ok: true, detached };
+}
 const queues = new Map();
 const serial = (tabId, action) => {
   const next = (queues.get(tabId) ?? Promise.resolve()).then(action, action);
@@ -25,6 +75,12 @@ async function handleMessage(message, sender) {
   // Top-level trusted extension surfaces may request a window; external frames may not.
   if (message.type === 'sprintx:trusted-window' && !sender.tab && sender.url?.startsWith(chrome.runtime.getURL('index.html'))) {
     await trustedWindow(); return { ok: true };
+  }
+  if (message.type === 'sprintx:pop-out'
+      && Object.keys(message).length === 2
+      && Number.isInteger(message.sourceWindowId)
+      && sender.url === chrome.runtime.getURL('index.html')) {
+    return openPopout(message.sourceWindowId);
   }
   if (!sender.tab || !Number.isInteger(sender.tab.id)) return { authorized: false };
   const key = keyFor(sender.tab.id);
@@ -62,3 +118,15 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   chrome.sidePanel.open({ tabId: tab.id }).catch(() => trustedWindow());
 });
 chrome.tabs.onRemoved.addListener((tabId) => serial(tabId, () => chrome.storage.session.remove(keyFor(tabId))));
+chrome.windows.onBoundsChanged.addListener(async (window) => {
+  const active = (await chrome.storage.session.get(POPOUT_SESSION_KEY))[POPOUT_SESSION_KEY];
+  if (window.id !== active?.popupWindowId || window.state !== 'normal') return;
+  if (![window.width, window.height, window.left, window.top].every(Number.isInteger)) return;
+  await chrome.storage.local.set({
+    [POPOUT_BOUNDS_KEY]: { width: window.width, height: window.height, left: window.left, top: window.top },
+  });
+});
+chrome.windows.onRemoved.addListener(async (windowId) => {
+  const active = (await chrome.storage.session.get(POPOUT_SESSION_KEY))[POPOUT_SESSION_KEY];
+  if (windowId === active?.popupWindowId) await chrome.storage.session.remove(POPOUT_SESSION_KEY);
+});
