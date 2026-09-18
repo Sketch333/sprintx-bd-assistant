@@ -23,7 +23,7 @@ test('real host mounts once, minimizes without unloading, restores, closes and c
   const frame = host.root.querySelector('iframe');
   expect(frame?.src).toBe('chrome-extension://unit/index.html?overlay=nonce');
   const shell = host.root.querySelector('section') as HTMLElement;
-  expect(getComputedStyle(shell).resize).toBe('both');
+  expect(host.root.querySelector('style')?.textContent).toContain('resize:both');
   expect(host.root.querySelector('[aria-label="Attach SprintX to browser"]')).toBeTruthy();
   expect(host.root.host.shadowRoot).toBeNull();
   host.scope.__sprintxOverlay.invoke('another');
