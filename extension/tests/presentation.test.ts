@@ -10,7 +10,7 @@ function installChrome(overrides: Record<string, unknown> = {}) {
       sendMessage: vi.fn().mockResolvedValue({ ok: true, detached: true }),
     },
     windows: {
-      getCurrent: vi.fn().mockResolvedValue({ id: 44, type: 'popup' }),
+      getCurrent: vi.fn().mockResolvedValue({ id: 12, type: 'normal' }),
       remove: vi.fn().mockResolvedValue(undefined),
     },
     sidePanel: {
@@ -71,6 +71,7 @@ test('pop out asks the background to create a popup for the current browser wind
 
 test('attach back opens the side panel in the source window and closes only the popup window', async () => {
   const chrome = installChrome();
+  chrome.windows.getCurrent.mockResolvedValue({ id: 44, type: 'popup' });
   window.history.replaceState({}, '', '/?popout=1&sourceWindowId=12');
   const presentation = await import('../src/presentation');
   await presentation.attachPresentationToBrowser();
