@@ -99,6 +99,13 @@ async function openFloatingOverlay(sourceWindowId) {
       args: [OVERLAY_VERSION],
     });
   } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error ?? 'unknown error');
+    if (/Cannot access a chrome:\/\/ URL|Cannot access contents of url ['"]?chrome:\/\//i.test(detail)) {
+      return {
+        ok: false,
+        error: 'SprintX cannot float on Chrome browser pages. Switch to a normal website tab (https://...) and try Float again.',
+      };
+    }
     return fail('page access check', error);
   }
   if (existing?.[0]?.result === true) return { ok: true, tabId: tab.id };
