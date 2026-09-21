@@ -17,9 +17,6 @@ function installChrome(overrides: Record<string, unknown> = {}) {
       open: vi.fn().mockResolvedValue(undefined),
       close: vi.fn().mockResolvedValue(undefined),
     },
-    permissions: {
-      request: vi.fn().mockResolvedValue(true),
-    },
     storage: {
       session: {
         get: vi.fn(async (key: string) => ({ [key]: sessionStore[key] })),
@@ -71,19 +68,9 @@ test('pop out asks the background to float SprintX over the current webpage', as
   const chrome = installChrome();
   const presentation = await import('../src/presentation');
   await expect(presentation.popOutPresentation('chrome-extension://unit/index.html')).resolves.toEqual({ detached: true });
-  expect(chrome.permissions.request).toHaveBeenCalledWith({ origins: ['http://*/*', 'https://*/*'] });
   expect(chrome.windows.getCurrent).toHaveBeenCalledTimes(1);
   expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:float-over-page', sourceWindowId: 12 });
   expect(chrome.sidePanel.close).toHaveBeenCalledWith({ windowId: 12 });
-});
-
-test('floating mode stops cleanly when webpage permission is declined', async () => {
-  const chrome = installChrome();
-  chrome.permissions.request.mockResolvedValue(false);
-  const presentation = await import('../src/presentation');
-  await expect(presentation.popOutPresentation('chrome-extension://unit/index.html'))
-    .rejects.toThrow('Allow SprintX access to webpages to use floating mode.');
-  expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
 });
 
 test('attach back opens the side panel in the source window and closes only the popup window', async () => {
