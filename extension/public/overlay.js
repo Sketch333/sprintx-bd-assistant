@@ -1,6 +1,6 @@
 // Executed in Chrome's isolated world only. There is deliberately no postMessage bridge.
 (() => {
-  const VERSION = 'workspace-2-floating-v3';
+  const VERSION = 'workspace-2-floating-v4';
   if (globalThis.__sprintxOverlay?.version === VERSION) return;
 
   let mounted = null;
@@ -14,9 +14,9 @@
     return { theme: dark ? 'dark' : 'light', accent: null };
   }
 
-  function invoke(nonce) {
+  function invoke(nonce, initialBounds) {
     if (mounted?.host.isConnected) {
-      mounted.show();
+      mounted.show(initialBounds);
       return;
     }
     mounted?.close();
@@ -189,9 +189,19 @@
 
     const listeners = new AbortController();
     let collapsed = false;
-    let left = Math.max(10, window.innerWidth - 450);
-    let top = 16;
+    const validBounds = initialBounds && typeof initialBounds === 'object'
+      && [initialBounds.left, initialBounds.top, initialBounds.width, initialBounds.height].every(Number.isFinite)
+      ? initialBounds
+      : null;
+    let left = validBounds ? initialBounds.left : Math.max(10, window.innerWidth - 450);
+    let top = validBounds ? initialBounds.top : 16;
     let drag = null;
+    let boundsTimer = null;
+
+    if (validBounds) {
+      shell.style.width = `${initialBounds.width}px`;
+      shell.style.height = `${initialBounds.height}px`;
+    }
 
     const button = (ariaLabel, title, text, handler, className = '') => {
       const element = document.createElement('button');
@@ -224,11 +234,37 @@
       shell.style.top = `${top}px`;
     }
 
+    function snapshotBounds() {
+      const rect = shell.getBoundingClientRect();
+      return {
+        left: Math.round(left),
+        top: Math.round(top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+    }
+
+    function publishBounds() {
+      if (collapsed || !host.isConnected) return;
+      const bounds = snapshotBounds();
+      chrome.runtime.sendMessage({ type: 'sprintx:overlay-bounds', nonce, bounds }).catch(() => undefined);
+    }
+
+    function scheduleBounds() {
+      if (collapsed) return;
+      if (boundsTimer) clearTimeout(boundsTimer);
+      boundsTimer = setTimeout(() => {
+        boundsTimer = null;
+        publishBounds();
+      }, 120);
+    }
+
     function endDrag(event) {
       if (!drag || (event && event.pointerId !== drag.pointerId)) return;
       const pointerId = drag.pointerId;
       drag = null;
       if (header.hasPointerCapture?.(pointerId)) header.releasePointerCapture(pointerId);
+      publishBounds();
     }
 
     function toggle() {
@@ -245,20 +281,22 @@
 
     let resizeObserver = null;
 
-    function close() {
+    function close(notify = true) {
       endDrag();
+      if (boundsTimer) clearTimeout(boundsTimer);
+      boundsTimer = null;
       resizeObserver?.disconnect();
       listeners.abort();
       chrome.runtime.onMessage.removeListener(presentation);
       host.remove();
       mounted = null;
-      chrome.runtime.sendMessage({ type: 'sprintx:close', nonce }).catch(() => undefined);
+      if (notify) chrome.runtime.sendMessage({ type: 'sprintx:close', nonce }).catch(() => undefined);
     }
 
     function presentation(message, sender) {
       if (sender.id !== chrome.runtime.id || !message) return;
       if (message.type === 'sprintx:remove-overlay' && message.nonce === nonce) {
-        close();
+        close(false);
         return;
       }
       if (
@@ -278,7 +316,7 @@
       '<span aria-hidden="true">↙</span><span class="attach-label">Attach</span>',
       () => {
         chrome.runtime.sendMessage({ type: 'sprintx:attach-overlay', nonce }).then((response) => {
-          if (response?.ok === true) close();
+          if (response?.ok === true) close(false);
         }).catch(() => undefined);
       },
       'attach',
@@ -286,7 +324,7 @@
     const minimize = button('Minimize SprintX', 'Minimize', '−', toggle);
     const restore = button('Restore SprintX', 'Restore', '□', toggle);
     restore.hidden = true;
-    button('Close SprintX', 'Close', '×', close);
+    button('Close SprintX', 'Close', '×', () => close(true));
 
     header.append(brand, actions);
 
@@ -322,10 +360,17 @@
     root.append(style, shell);
     document.documentElement.append(host);
 
-    resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => clamp()) : null;
+    resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { clamp(); scheduleBounds(); }) : null;
     resizeObserver?.observe(shell);
 
-    function show() {
+    function show(bounds) {
+      if (bounds && typeof bounds === 'object'
+          && [bounds.left, bounds.top, bounds.width, bounds.height].every(Number.isFinite)) {
+        left = bounds.left;
+        top = bounds.top;
+        shell.style.width = `${bounds.width}px`;
+        shell.style.height = `${bounds.height}px`;
+      }
       if (collapsed) toggle();
       else clamp();
     }
@@ -344,9 +389,14 @@
       mounted.toggle();
       return true;
     },
-    showExisting() {
+    showExisting(bounds) {
       if (!mounted?.host.isConnected) return false;
-      mounted.show();
+      mounted.show(bounds);
+      return true;
+    },
+    removeExisting() {
+      if (!mounted?.host.isConnected) return false;
+      mounted.close(false);
       return true;
     },
   };
