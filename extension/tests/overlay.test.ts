@@ -23,7 +23,7 @@ test('real host mounts once, minimizes without unloading, restores, closes and c
   const frame = host.root.querySelector('iframe');
   expect(frame?.src).toBe('chrome-extension://unit/index.html?overlay=nonce');
   const shell = host.root.querySelector('section') as HTMLElement;
-  expect(host.root.querySelector('style')?.textContent).toContain('resize:both');
+  expect(host.root.querySelector('style')?.textContent).toContain('resize: both;');
   expect(host.root.querySelector('[aria-label="Attach SprintX to browser"]')).toBeTruthy();
   expect(host.root.querySelector('[aria-label="Open SprintX trusted window"]')).toBeNull();
   expect(host.root.host.shadowRoot).toBeNull();
@@ -46,7 +46,7 @@ test('drag and viewport resize clamp shell inside viewport', () => {
   const handle = host.root.querySelector('[data-drag]')!;
   handle.dispatchEvent(new MouseEvent('pointerdown', { clientX: 900, clientY: 100, bubbles: true }));
   window.dispatchEvent(new MouseEvent('pointermove', { clientX: -3000, clientY: -3000 }));
-  expect(shell.style.left).toBe('8px'); expect(shell.style.top).toBe('8px');
+  expect(shell.style.left).toBe('10px'); expect(shell.style.top).toBe('10px');
   window.dispatchEvent(new MouseEvent('pointermove', { clientX: 9000, clientY: 9000 }));
   expect(parseFloat(shell.style.left)).toBeLessThan(window.innerWidth);
   window.dispatchEvent(new Event('resize'));
@@ -102,12 +102,12 @@ test('native toolbar behavior delegates directly to Chrome Side Panel', async ()
   expect(bg.chrome.sidePanel.open).toHaveBeenCalledWith({ tabId: 7 });
 });
 
-test('private presentation relay controls shell without accepting page messages or unsafe colors', () => {
+test('private presentation relay controls Workspace 2 theme without accepting page accents or external messages', () => {
   const host = overlay(); host.scope.__sprintxOverlay.invoke('nonce');
   const shell = host.root.querySelector('section') as HTMLElement;
   host.message({ type: 'sprintx:apply-appearance', theme: 'light', accent: '#22aabb' }, { id: 'unit' });
   expect(shell.dataset.theme).toBe('light');
-  expect(shell.style.getPropertyValue('--page-accent')).toBe('#22aabb');
+  expect(shell.style.getPropertyValue('--page-accent')).toBe('');
   host.message({ type: 'sprintx:apply-appearance', theme: 'dark', accent: 'url(secret)' }, { id: 'unit' });
   host.message({ type: 'sprintx:apply-appearance', theme: 'dark', accent: ['#22aabb'] }, { id: 'unit' });
   host.message({ type: 'sprintx:apply-appearance', theme: 'dark', accent: null }, { id: 'external' });
@@ -116,11 +116,11 @@ test('private presentation relay controls shell without accepting page messages 
   expect(host.chrome.runtime.onMessage.removeListener).toHaveBeenCalled();
 });
 
-test('real isolated sampling returns validated presentation only and does not send a late runtime sample', () => {
+test('real isolated sampling follows page light/dark context without importing page accent colors', () => {
   const host = overlay();
   const meta = document.createElement('meta'); meta.name = 'theme-color'; meta.content = '#ff0000'; document.head.append(meta);
   document.body.style.backgroundColor = 'rgb(255, 255, 255)';
-  expect(host.scope.__sprintxOverlay.sampleAppearance()).toEqual({ theme: 'light', accent: '#437e74' });
+  expect(host.scope.__sprintxOverlay.sampleAppearance()).toEqual({ theme: 'light', accent: null });
   meta.content = 'url(secret)';
   expect(host.scope.__sprintxOverlay.sampleAppearance()).toEqual({ theme: 'light', accent: null });
   host.scope.__sprintxOverlay.invoke('nonce');
