@@ -13,6 +13,7 @@ export interface PresentationWorkspaceState {
 }
 
 const WORKSPACE_STATE_KEY = 'sprintx:presentation-workspace';
+const FLOATING_PAGE_ORIGINS = ['http://*/*', 'https://*/*'];
 
 function chromeExtensionAvailable(): boolean {
   return typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id);
@@ -70,6 +71,10 @@ export async function clearPresentationWorkspaceState(): Promise<void> {
 
 export async function popOutPresentation(href = window.location.href): Promise<{ detached: boolean }> {
   if (!chromeExtensionAvailable() || resolvePresentationMode(href, false) !== 'side-panel') throw new Error('SprintX can only float over a page from its Chrome side panel.');
+
+  const granted = await chrome.permissions.request({ origins: FLOATING_PAGE_ORIGINS });
+  if (!granted) throw new Error('Allow SprintX access to webpages to use floating mode.');
+
   const current = await chrome.windows.getCurrent();
   if (!Number.isInteger(current.id)) throw new Error('The current browser window is unavailable.');
   const response = await chrome.runtime.sendMessage({ type: 'sprintx:float-over-page', sourceWindowId: current.id }) as { ok?: boolean; error?: string } | undefined;
