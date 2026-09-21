@@ -65,9 +65,24 @@ async function openFloatingOverlay(sourceWindowId) {
   const [tab] = await chrome.tabs.query({ active: true, windowId: sourceWindowId });
   if (!Number.isInteger(tab?.id)) return { ok: false, error: 'No active webpage is available for SprintX.' };
 
+  const pageUrl = typeof tab.url === 'string' ? tab.url : '';
+  if (pageUrl && !/^https?:\/\//i.test(pageUrl)) {
+    return {
+      ok: false,
+      error: `SprintX floating mode only works on normal http/https webpages. Active page: ${pageUrl.split('#')[0]}`,
+    };
+  }
+
   const target = { tabId: tab.id, frameIds: [0] };
+  const fail = (stage, error) => {
+    const detail = error instanceof Error ? error.message : String(error ?? 'unknown error');
+    const page = pageUrl ? ` on ${pageUrl.split('#')[0]}` : '';
+    return { ok: false, error: `SprintX floating mode failed during ${stage}${page}: ${detail}` };
+  };
+
+  let existing;
   try {
-    const existing = await chrome.scripting.executeScript({
+    existing = await chrome.scripting.executeScript({
       target,
       func: (expectedVersion) => {
         const overlay = globalThis.__sprintxOverlay;
@@ -83,43 +98,54 @@ async function openFloatingOverlay(sourceWindowId) {
       },
       args: [OVERLAY_VERSION],
     });
-    if (existing?.[0]?.result === true) return { ok: true, tabId: tab.id };
+  } catch (error) {
+    return fail('page access check', error);
+  }
+  if (existing?.[0]?.result === true) return { ok: true, tabId: tab.id };
 
-    const injected = await chrome.scripting.executeScript({ target, files: ['overlay.js'] });
-    const topDocument = injected?.find((result) => result.frameId === 0);
-    if (!topDocument?.documentId) return { ok: false, error: 'SprintX could not bind to the active page.' };
+  let injected;
+  try {
+    injected = await chrome.scripting.executeScript({ target, files: ['overlay.js'] });
+  } catch (error) {
+    return fail('overlay injection', error);
+  }
+  const topDocument = injected?.find((result) => result.frameId === 0);
+  if (!topDocument?.documentId) {
+    return { ok: false, error: `SprintX overlay injected but Chrome did not return the top document id${pageUrl ? ` for ${pageUrl.split('#')[0]}` : ''}.` };
+  }
 
-    const sampled = await chrome.scripting.executeScript({
+  let sampled;
+  try {
+    sampled = await chrome.scripting.executeScript({
       target,
       func: () => globalThis.__sprintxOverlay?.sampleAppearance?.() ?? { theme: 'light', accent: null },
     });
-    const appearance = validAppearance(sampled?.[0]?.result) ? sampled[0].result : { theme: 'light', accent: null };
-    const nonce = crypto.randomUUID();
-    await chrome.storage.session.set({
-      [keyFor(tab.id)]: {
-        nonce,
-        topDocumentId: topDocument.documentId,
-        expiresAt: Date.now() + 30000,
-        appearance,
-      },
-    });
+  } catch (error) {
+    return fail('appearance sampling', error);
+  }
 
+  const appearance = validAppearance(sampled?.[0]?.result) ? sampled[0].result : { theme: 'light', accent: null };
+  const nonce = crypto.randomUUID();
+  await chrome.storage.session.set({
+    [keyFor(tab.id)]: {
+      nonce,
+      topDocumentId: topDocument.documentId,
+      expiresAt: Date.now() + 30000,
+      appearance,
+    },
+  });
+
+  try {
     await chrome.scripting.executeScript({
       target,
       func: (value) => globalThis.__sprintxOverlay?.invoke?.(value),
       args: [nonce],
     });
-    return { ok: true, tabId: tab.id };
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error ?? '');
-    const restricted = /cannot access contents of url|cannot be scripted|chrome:\/\/|edge:\/\/|extensions gallery/i.test(detail);
-    return {
-      ok: false,
-      error: restricted
-        ? 'Chrome does not allow SprintX to float on this browser-internal or restricted page.'
-        : `SprintX floating mode failed: ${detail || 'unknown page-injection error'}`,
-    };
+    return fail('overlay mount', error);
   }
+
+  return { ok: true, tabId: tab.id };
 }
 const frameURL = (nonce) => chrome.runtime.getURL(`index.html?overlay=${encodeURIComponent(nonce)}`);
 async function liveFrame(record, sender) {
