@@ -77,6 +77,14 @@ test('pop out asks the background to float SprintX over the current webpage', as
   expect(chrome.sidePanel.close).toHaveBeenCalledWith({ windowId: 12 });
 });
 
+test('suspended floating session still detaches the native side panel', async () => {
+  const chrome = installChrome();
+  chrome.runtime.sendMessage.mockResolvedValueOnce({ ok: true, suspended: true, windowId: 12, tabId: 77 });
+  const presentation = await import('../src/presentation');
+  await expect(presentation.popOutPresentation('chrome-extension://unit/index.html')).resolves.toEqual({ detached: true });
+  expect(chrome.sidePanel.close).toHaveBeenCalledWith({ windowId: 12 });
+});
+
 test('does not close the side panel when floating is rejected', async () => {
   const chrome = installChrome();
   chrome.runtime.sendMessage.mockResolvedValueOnce({
