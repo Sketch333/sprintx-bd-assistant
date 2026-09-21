@@ -49,5 +49,9 @@
     "32": "brand/icon-32.png",
     "48": "brand/icon-48.png",
     "128": "brand/icon-128.png"
-  }
+  },
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
 }
