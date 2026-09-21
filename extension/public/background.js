@@ -158,9 +158,9 @@ async function openFloatingOverlay(sourceWindowId, sourceTabId) {
 }
 const frameURL = (nonce) => chrome.runtime.getURL(`index.html?overlay=${encodeURIComponent(nonce)}`);
 async function liveFrame(record, sender) {
-  if (!record || sender.id !== chrome.runtime.id || !sender.tab || !Number.isInteger(sender.sourceTabId) || sender.frameId <= 0 || !sender.documentId) return false;
+  if (!record || sender.id !== chrome.runtime.id || !sender.tab || !Number.isInteger(sender.tab.id) || sender.frameId <= 0 || !sender.documentId) return false;
   if (sender.url !== frameURL(record.nonce)) return false;
-  const top = await chrome.webNavigation.getFrame({ tabId: sender.sourceTabId, frameId: 0 }).catch(() => undefined);
+  const top = await chrome.webNavigation.getFrame({ tabId: sender.tab.id, frameId: 0 }).catch(() => undefined);
   return top?.documentId === record.topDocumentId;
 }
 async function handleMessage(message, sender) {
@@ -182,8 +182,8 @@ async function handleMessage(message, sender) {
       && sender.url === chrome.runtime.getURL('index.html')) {
     return openFloatingOverlay(message.sourceWindowId, message.sourceTabId);
   }
-  if (!sender.tab || !Number.isInteger(sender.sourceTabId)) return { authorized: false };
-  const key = keyFor(sender.sourceTabId);
+  if (!sender.tab || !Number.isInteger(sender.tab.id)) return { authorized: false };
+  const key = keyFor(sender.tab.id);
   const record = (await chrome.storage.session.get(key))[key];
   if (message.type === 'sprintx:authorize') {
     if (Object.keys(message).length !== 2 || message.nonce !== record?.nonce || !(await liveFrame(record, sender))) return { authorized: false };
@@ -201,7 +201,7 @@ async function handleMessage(message, sender) {
   if (record?.frameDocumentId === sender.documentId && record.frameId === sender.frameId && await liveFrame(record, sender)) {
     if (message.type === 'sprintx:trusted-window' && Object.keys(message).length === 1) { await trustedWindow(); return { ok: true }; }
     if (message.type === 'sprintx:apply-appearance' && Object.keys(message).length === 3 && validAppearance({ theme: message.theme, accent: message.accent })) {
-      await chrome.tabs.sendMessage(sender.sourceTabId, { type: message.type, theme: message.theme, accent: message.accent }, { documentId: record.topDocumentId });
+      await chrome.tabs.sendMessage(sender.tab.id, { type: message.type, theme: message.theme, accent: message.accent }, { documentId: record.topDocumentId });
       return { ok: true };
     }
   }
@@ -216,7 +216,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       && sender.frameId === 0
       && typeof message.nonce === 'string'
       && Object.keys(message).length === 2) {
-    chrome.sidePanel.open({ tabId: sender.sourceTabId }).then(
+    chrome.sidePanel.open({ tabId: sender.tab.id }).then(
       () => respond({ ok: true }),
       () => respond({ ok: false, error: 'SprintX could not attach to the browser side panel.' }),
     );
@@ -229,7 +229,7 @@ chrome.runtime.onInstalled.addListener(() => chrome.contextMenus.create({ id: 's
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== 'sprintx-sidebar' || !Number.isInteger(tab?.id)) return;
   // Call synchronously in the originating browser gesture, before any await.
-  chrome.sidePanel.open({ tabId: sourceTabId }).catch(() => trustedWindow());
+  chrome.sidePanel.open({ tabId: tab.id }).catch(() => trustedWindow());
 });
 chrome.tabs.onRemoved.addListener((tabId) => serial(tabId, () => chrome.storage.session.remove(keyFor(tabId))));
 chrome.windows.onBoundsChanged.addListener(async (window) => {
