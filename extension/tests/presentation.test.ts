@@ -73,6 +73,18 @@ test('pop out asks the background to float SprintX over the current webpage', as
   expect(chrome.sidePanel.close).toHaveBeenCalledWith({ windowId: 12 });
 });
 
+test('does not close the side panel when floating is rejected', async () => {
+  const chrome = installChrome();
+  chrome.runtime.sendMessage.mockResolvedValueOnce({
+    ok: false,
+    error: 'SprintX cannot float on Chrome browser pages. Switch to a normal website tab (https://...) and try Float again.',
+  });
+  const presentation = await import('../src/presentation');
+  await expect(presentation.popOutPresentation('chrome-extension://unit/index.html'))
+    .rejects.toThrow('SprintX cannot float on Chrome browser pages');
+  expect(chrome.sidePanel.close).not.toHaveBeenCalled();
+});
+
 test('attach back opens the side panel in the source window and closes only the popup window', async () => {
   const chrome = installChrome();
   chrome.windows.getCurrent.mockResolvedValue({ id: 44, type: 'popup' });
