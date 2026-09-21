@@ -1,6 +1,7 @@
 // Executed in Chrome's isolated world only. There is deliberately no postMessage bridge.
 (() => {
-  if (globalThis.__sprintxOverlay) return;
+  const VERSION = 'workspace-2-floating-v3';
+  if (globalThis.__sprintxOverlay?.version === VERSION) return;
 
   let mounted = null;
 
@@ -335,6 +336,7 @@
   }
 
   globalThis.__sprintxOverlay = {
+    version: VERSION,
     invoke,
     sampleAppearance,
     toggleExisting() {
