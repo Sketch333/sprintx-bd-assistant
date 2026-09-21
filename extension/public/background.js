@@ -278,6 +278,9 @@ async function reconcileFloatingWindow(windowId, targetTabId, options = {}) {
       && session.activeTabId !== targetTabId) {
     await removeOverlayFromTab(session.activeTabId);
     session.activeTabId = null;
+  } else if (options.force && session.activeTabId === targetTabId) {
+    await removeOverlayFromTab(targetTabId);
+    session.activeTabId = null;
   }
 
   const tab = await chrome.tabs.get(targetTabId).catch(() => undefined);
