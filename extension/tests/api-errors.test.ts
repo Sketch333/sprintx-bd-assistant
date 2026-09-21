@@ -16,3 +16,8 @@ it('uses the current web origin when VITE_API_BASE_URL is absent', () => {
 it('does not invent an API origin for chrome-extension pages', () => {
   expect(resolveApiBaseUrl(undefined, 'chrome-extension://abc123/index.html')).toBe('');
 });
+
+
+it('loads safely when no browser window or location exists', () => {
+  expect(resolveApiBaseUrl(undefined, undefined)).toBe('');
+});

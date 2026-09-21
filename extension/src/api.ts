@@ -2,18 +2,27 @@ import type { AskResponse, Conversation, ConversationMessage, DraftInput, DraftR
 import type { AskMode } from './types';
 import type { DriveSyncResult } from './drive-sync';
 
-export function resolveApiBaseUrl(configured = import.meta.env.VITE_API_BASE_URL, href = window.location.href): string {
+export function resolveApiBaseUrl(configured?: string, href?: string): string {
   const explicit = typeof configured === 'string' ? configured.trim() : '';
   if (explicit) return explicit.replace(/\/$/, '');
+
+  const browserHref = typeof href === 'string'
+    ? href
+    : typeof globalThis.location?.href === 'string'
+      ? globalThis.location.href
+      : '';
+
+  if (!browserHref) return '';
+
   try {
-    const url = new URL(href);
+    const url = new URL(browserHref);
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : '';
   } catch {
     return '';
   }
 }
 
-const apiBaseUrl = resolveApiBaseUrl();
+const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {

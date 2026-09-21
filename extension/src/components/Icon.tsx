@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export type IconName = 'plus' | 'history' | 'new' | 'down' | 'chevronDown' | 'chevronUp' | 'send' | 'settings' | 'copy' | 'refine' | 'draft';
+export type IconName = 'plus' | 'history' | 'new' | 'down' | 'chevronDown' | 'chevronUp' | 'send' | 'settings' | 'copy' | 'refine' | 'draft' | 'popout' | 'attach';
 
 const paths: Record<IconName, ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -14,6 +14,8 @@ const paths: Record<IconName, ReactNode> = {
   copy: <><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
   refine: <><path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1L6.5 8.5l4.1-1.4L12 3Z" /><path d="m18 14 .8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14Z" /></>,
   draft: <><path d="M5 4h10l4 4v12H5z" /><path d="M15 4v5h5M8 13h8M8 16h6" /></>,
+  popout: <><rect x="4" y="6" width="12" height="11" rx="2" /><path d="M13 4h7v7M20 4l-8 8" /></>,
+  attach: <><rect x="8" y="6" width="12" height="11" rx="2" /><path d="M11 12H4m0 0 3-3m-3 3 3 3" /></>,
 };
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {

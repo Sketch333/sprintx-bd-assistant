@@ -12,7 +12,10 @@
     "extension:install": "npm --prefix extension install",
     "extension:build": "npm --prefix extension run build",
     "extension:test": "npm --prefix extension test",
-    "test": "npm run build && node --no-experimental-require-module test/commonjs-runtime.test.cjs && tsx --test test/**/*.test.ts"
+    "test": "npm run build && node --no-experimental-require-module test/commonjs-runtime.test.cjs && tsx --test test/**/*.test.ts",
+    "web:install": "npm --prefix web install",
+    "web:build": "npm --prefix web run build",
+    "vercel-build": "npm --prefix web install --include=dev && npm --prefix web run build"
   },
   "keywords": [
     "sprintx",
