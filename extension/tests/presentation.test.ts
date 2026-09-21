@@ -13,6 +13,9 @@ function installChrome(overrides: Record<string, unknown> = {}) {
       getCurrent: vi.fn().mockResolvedValue({ id: 12, type: 'normal' }),
       remove: vi.fn().mockResolvedValue(undefined),
     },
+    tabs: {
+      query: vi.fn().mockResolvedValue([{ id: 77, windowId: 12, url: 'https://example.test/' }]),
+    },
     sidePanel: {
       open: vi.fn().mockResolvedValue(undefined),
       close: vi.fn().mockResolvedValue(undefined),
@@ -69,7 +72,8 @@ test('pop out asks the background to float SprintX over the current webpage', as
   const presentation = await import('../src/presentation');
   await expect(presentation.popOutPresentation('chrome-extension://unit/index.html')).resolves.toEqual({ detached: true });
   expect(chrome.windows.getCurrent).toHaveBeenCalledTimes(1);
-  expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:float-over-page', sourceWindowId: 12 });
+  expect(chrome.tabs.query).toHaveBeenCalledWith({ active: true, windowId: 12 });
+  expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:float-over-page', sourceWindowId: 12, sourceTabId: 77 });
   expect(chrome.sidePanel.close).toHaveBeenCalledWith({ windowId: 12 });
 });
 
@@ -101,7 +105,7 @@ test('floating mode remains available on Chrome versions without sidePanel.close
   delete chrome.sidePanel.close;
   const presentation = await import('../src/presentation');
   await expect(presentation.popOutPresentation('chrome-extension://unit/index.html')).resolves.toEqual({ detached: false });
-  expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:float-over-page', sourceWindowId: 12 });
+  expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'sprintx:float-over-page', sourceWindowId: 12, sourceTabId: 77 });
 });
 
 
