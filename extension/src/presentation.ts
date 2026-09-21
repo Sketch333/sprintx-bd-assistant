@@ -73,7 +73,15 @@ export async function popOutPresentation(href = window.location.href): Promise<{
 
   const current = await chrome.windows.getCurrent();
   if (!Number.isInteger(current.id)) throw new Error('The current browser window is unavailable.');
-  const response = await chrome.runtime.sendMessage({ type: 'sprintx:float-over-page', sourceWindowId: current.id }) as { ok?: boolean; error?: string } | undefined;
+
+  const [sourceTab] = await chrome.tabs.query({ active: true, windowId: current.id });
+  if (!Number.isInteger(sourceTab?.id)) throw new Error('The selected webpage tab is unavailable.');
+
+  const response = await chrome.runtime.sendMessage({
+    type: 'sprintx:float-over-page',
+    sourceWindowId: current.id,
+    sourceTabId: sourceTab.id,
+  }) as { ok?: boolean; error?: string } | undefined;
   if (response?.ok !== true) throw new Error(response?.error || 'SprintX could not float over the selected webpage. Switch to a normal https:// tab and try again.');
 
   let detached = false;
