@@ -2,6 +2,7 @@
 // session storage remains extension-only (never enable TRUSTED_AND_UNTRUSTED_CONTEXTS).
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
 const keyFor = (tabId) => `overlay:${tabId}`;
+const OVERLAY_VERSION = 'workspace-2-floating-v3';
 const POPOUT_SESSION_KEY = 'sprintx:popout-session';
 const POPOUT_BOUNDS_KEY = 'sprintx:popout-bounds';
 const DEFAULT_POPOUT_BOUNDS = { width: 480, height: 760 };
@@ -68,7 +69,19 @@ async function openFloatingOverlay(sourceWindowId) {
   try {
     const existing = await chrome.scripting.executeScript({
       target,
-      func: () => Boolean(globalThis.__sprintxOverlay?.showExisting?.()),
+      func: (expectedVersion) => {
+        const overlay = globalThis.__sprintxOverlay;
+        if (overlay?.version === expectedVersion && typeof overlay.showExisting === 'function') {
+          return Boolean(overlay.showExisting());
+        }
+        if (overlay) {
+          document.querySelector('[data-sprintx-host]')?.remove();
+          try { delete globalThis.__sprintxOverlay; }
+          catch { globalThis.__sprintxOverlay = undefined; }
+        }
+        return false;
+      },
+      args: [OVERLAY_VERSION],
     });
     if (existing?.[0]?.result === true) return { ok: true, tabId: tab.id };
 
