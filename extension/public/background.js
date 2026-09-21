@@ -55,15 +55,17 @@ const serial = (tabId, action) => {
 const trustedWindow = () => chrome.windows.create({ url: chrome.runtime.getURL('index.html?fallback=1'), type: 'popup', width: 460, height: 720 });
 const validAppearance = (value) => value && typeof value === 'object' && Object.keys(value).length === 2 && (value.theme === 'light' || value.theme === 'dark') && (value.accent === null || (typeof value.accent === 'string' && /^#[\da-f]{6}$/i.test(value.accent)));
 
-async function openFloatingOverlay(sourceWindowId) {
+async function openFloatingOverlay(sourceWindowId, sourceTabId) {
   const stalePopout = (await chrome.storage.session.get(POPOUT_SESSION_KEY))[POPOUT_SESSION_KEY];
   if (Number.isInteger(stalePopout?.popupWindowId)) {
     await chrome.windows.remove(stalePopout.popupWindowId).catch(() => undefined);
     await chrome.storage.session.remove(POPOUT_SESSION_KEY);
   }
 
-  const [tab] = await chrome.tabs.query({ active: true, windowId: sourceWindowId });
-  if (!Number.isInteger(tab?.id)) return { ok: false, error: 'No active webpage is available for SprintX.' };
+  const tab = await chrome.tabs.get(sourceTabId).catch(() => undefined);
+  if (!tab || tab.windowId !== sourceWindowId) {
+    return { ok: false, error: 'The webpage selected for floating mode is no longer available.' };
+  }
 
   const pageUrl = typeof tab.url === 'string' ? tab.url : '';
   if (pageUrl && !/^https?:\/\//i.test(pageUrl)) {
@@ -73,7 +75,7 @@ async function openFloatingOverlay(sourceWindowId) {
     };
   }
 
-  const target = { tabId: tab.id, frameIds: [0] };
+  const target = { tabId: sourceTabId, frameIds: [0] };
   const fail = (stage, error) => {
     const detail = error instanceof Error ? error.message : String(error ?? 'unknown error');
     const page = pageUrl ? ` on ${pageUrl.split('#')[0]}` : '';
@@ -108,7 +110,7 @@ async function openFloatingOverlay(sourceWindowId) {
     }
     return fail('page access check', error);
   }
-  if (existing?.[0]?.result === true) return { ok: true, tabId: tab.id };
+  if (existing?.[0]?.result === true) return { ok: true, tabId: sourceTabId };
 
   let injected;
   try {
@@ -134,7 +136,7 @@ async function openFloatingOverlay(sourceWindowId) {
   const appearance = validAppearance(sampled?.[0]?.result) ? sampled[0].result : { theme: 'light', accent: null };
   const nonce = crypto.randomUUID();
   await chrome.storage.session.set({
-    [keyFor(tab.id)]: {
+    [keyFor(sourceTabId)]: {
       nonce,
       topDocumentId: topDocument.documentId,
       expiresAt: Date.now() + 30000,
@@ -152,13 +154,13 @@ async function openFloatingOverlay(sourceWindowId) {
     return fail('overlay mount', error);
   }
 
-  return { ok: true, tabId: tab.id };
+  return { ok: true, tabId: sourceTabId };
 }
 const frameURL = (nonce) => chrome.runtime.getURL(`index.html?overlay=${encodeURIComponent(nonce)}`);
 async function liveFrame(record, sender) {
-  if (!record || sender.id !== chrome.runtime.id || !sender.tab || !Number.isInteger(sender.tab.id) || sender.frameId <= 0 || !sender.documentId) return false;
+  if (!record || sender.id !== chrome.runtime.id || !sender.tab || !Number.isInteger(sender.sourceTabId) || sender.frameId <= 0 || !sender.documentId) return false;
   if (sender.url !== frameURL(record.nonce)) return false;
-  const top = await chrome.webNavigation.getFrame({ tabId: sender.tab.id, frameId: 0 }).catch(() => undefined);
+  const top = await chrome.webNavigation.getFrame({ tabId: sender.sourceTabId, frameId: 0 }).catch(() => undefined);
   return top?.documentId === record.topDocumentId;
 }
 async function handleMessage(message, sender) {
@@ -174,13 +176,14 @@ async function handleMessage(message, sender) {
     return openPopout(message.sourceWindowId);
   }
   if (message.type === 'sprintx:float-over-page'
-      && Object.keys(message).length === 2
+      && Object.keys(message).length === 3
       && Number.isInteger(message.sourceWindowId)
+      && Number.isInteger(message.sourceTabId)
       && sender.url === chrome.runtime.getURL('index.html')) {
-    return openFloatingOverlay(message.sourceWindowId);
+    return openFloatingOverlay(message.sourceWindowId, message.sourceTabId);
   }
-  if (!sender.tab || !Number.isInteger(sender.tab.id)) return { authorized: false };
-  const key = keyFor(sender.tab.id);
+  if (!sender.tab || !Number.isInteger(sender.sourceTabId)) return { authorized: false };
+  const key = keyFor(sender.sourceTabId);
   const record = (await chrome.storage.session.get(key))[key];
   if (message.type === 'sprintx:authorize') {
     if (Object.keys(message).length !== 2 || message.nonce !== record?.nonce || !(await liveFrame(record, sender))) return { authorized: false };
@@ -198,7 +201,7 @@ async function handleMessage(message, sender) {
   if (record?.frameDocumentId === sender.documentId && record.frameId === sender.frameId && await liveFrame(record, sender)) {
     if (message.type === 'sprintx:trusted-window' && Object.keys(message).length === 1) { await trustedWindow(); return { ok: true }; }
     if (message.type === 'sprintx:apply-appearance' && Object.keys(message).length === 3 && validAppearance({ theme: message.theme, accent: message.accent })) {
-      await chrome.tabs.sendMessage(sender.tab.id, { type: message.type, theme: message.theme, accent: message.accent }, { documentId: record.topDocumentId });
+      await chrome.tabs.sendMessage(sender.sourceTabId, { type: message.type, theme: message.theme, accent: message.accent }, { documentId: record.topDocumentId });
       return { ok: true };
     }
   }
@@ -213,7 +216,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       && sender.frameId === 0
       && typeof message.nonce === 'string'
       && Object.keys(message).length === 2) {
-    chrome.sidePanel.open({ tabId: sender.tab.id }).then(
+    chrome.sidePanel.open({ tabId: sender.sourceTabId }).then(
       () => respond({ ok: true }),
       () => respond({ ok: false, error: 'SprintX could not attach to the browser side panel.' }),
     );
@@ -226,7 +229,7 @@ chrome.runtime.onInstalled.addListener(() => chrome.contextMenus.create({ id: 's
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== 'sprintx-sidebar' || !Number.isInteger(tab?.id)) return;
   // Call synchronously in the originating browser gesture, before any await.
-  chrome.sidePanel.open({ tabId: tab.id }).catch(() => trustedWindow());
+  chrome.sidePanel.open({ tabId: sourceTabId }).catch(() => trustedWindow());
 });
 chrome.tabs.onRemoved.addListener((tabId) => serial(tabId, () => chrome.storage.session.remove(keyFor(tabId))));
 chrome.windows.onBoundsChanged.addListener(async (window) => {
