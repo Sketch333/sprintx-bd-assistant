@@ -110,10 +110,14 @@ async function openFloatingOverlay(sourceWindowId) {
       args: [nonce],
     });
     return { ok: true, tabId: tab.id };
-  } catch {
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error ?? '');
+    const restricted = /cannot access contents of url|cannot be scripted|chrome:\/\/|edge:\/\/|extensions gallery/i.test(detail);
     return {
       ok: false,
-      error: 'SprintX cannot float on this page. Chrome blocks page injection on browser-internal and other restricted pages.',
+      error: restricted
+        ? 'Chrome does not allow SprintX to float on this browser-internal or restricted page.'
+        : `SprintX floating mode failed: ${detail || 'unknown page-injection error'}`,
     };
   }
 }
