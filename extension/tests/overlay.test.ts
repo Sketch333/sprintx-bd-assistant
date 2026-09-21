@@ -160,6 +160,30 @@ test('drag captures initiating pointer and releases on up, lost capture and clos
 });
 
 
+test('floating mode rejects a stale injected overlay instead of reusing legacy UI', async () => {
+  const bg = await background();
+  let staleRemoved = false;
+  bg.chrome.scripting.executeScript.mockImplementation(async (options: any) => {
+    if (options.files) return [{ frameId: 0, documentId: 'top-document' }];
+    const source = String(options.func);
+    if (source.includes('expectedVersion')) {
+      staleRemoved = true;
+      return [{ frameId: 0, documentId: 'top-document', result: false }];
+    }
+    if (source.includes('sampleAppearance')) return [{ frameId: 0, documentId: 'top-document', result: { theme: 'light', accent: null } }];
+    return [{ frameId: 0, documentId: 'top-document', result: undefined }];
+  });
+
+  const response = await bg.message(
+    { type: 'sprintx:float-over-page', sourceWindowId: 9 },
+    { id: 'unit', url: 'chrome-extension://unit/index.html' },
+  );
+
+  expect(staleRemoved).toBe(true);
+  expect(response).toMatchObject({ ok: true, tabId: 7 });
+  expect(bg.chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({ files: ['overlay.js'] }));
+});
+
 test('side panel can float SprintX over the active webpage without opening a new OS window', async () => {
   const bg = await background();
   const response = await bg.message(
