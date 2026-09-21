@@ -72,7 +72,12 @@ async function background(sharedStore?: any) {
       onBoundsChanged: event('boundsChanged'),
       onRemoved: event('windowRemoved'),
     },
-    tabs: { query: vi.fn().mockResolvedValue([{ id: 7, windowId: 9, url: 'https://example.test/path' }]), onRemoved: event('removed'), sendMessage: vi.fn().mockResolvedValue({}) },
+    tabs: {
+      query: vi.fn().mockResolvedValue([{ id: 99, windowId: 9, url: 'chrome://extensions/' }]),
+      get: vi.fn().mockResolvedValue({ id: 7, windowId: 9, url: 'https://example.test/path' }),
+      onRemoved: event('removed'),
+      sendMessage: vi.fn().mockResolvedValue({}),
+    },
     scripting: {
       executeScript: vi.fn(async (options: any) => {
         if (options.files) return [{ frameId: 0, documentId: 'top-document' }];
@@ -175,7 +180,7 @@ test('floating mode rejects a stale injected overlay instead of reusing legacy U
   });
 
   const response = await bg.message(
-    { type: 'sprintx:float-over-page', sourceWindowId: 9 },
+    { type: 'sprintx:float-over-page', sourceWindowId: 9, sourceTabId: 7 },
     { id: 'unit', url: 'chrome-extension://unit/index.html' },
   );
 
@@ -186,9 +191,9 @@ test('floating mode rejects a stale injected overlay instead of reusing legacy U
 
 test('floating mode rejects browser-internal tabs before attempting injection', async () => {
   const bg = await background();
-  bg.chrome.tabs.query.mockResolvedValueOnce([{ id: 7, windowId: 9, url: 'chrome://extensions/' }]);
+  bg.chrome.tabs.get.mockResolvedValueOnce({ id: 7, windowId: 9, url: 'chrome://extensions/' });
   const response = await bg.message(
-    { type: 'sprintx:float-over-page', sourceWindowId: 9 },
+    { type: 'sprintx:float-over-page', sourceWindowId: 9, sourceTabId: 7 },
     { id: 'unit', url: 'chrome-extension://unit/index.html' },
   );
   expect(response.ok).toBe(false);
@@ -196,14 +201,30 @@ test('floating mode rejects browser-internal tabs before attempting injection', 
   expect(bg.chrome.scripting.executeScript).not.toHaveBeenCalled();
 });
 
+test('background cannot retarget floating mode to a different active tab', async () => {
+  const bg = await background();
+  bg.chrome.tabs.query.mockResolvedValueOnce([{ id: 99, windowId: 9, url: 'chrome://extensions/' }]);
+  bg.chrome.tabs.get.mockResolvedValueOnce({ id: 7, windowId: 9, url: 'https://example.test/path' });
+
+  const response = await bg.message(
+    { type: 'sprintx:float-over-page', sourceWindowId: 9, sourceTabId: 7 },
+    { id: 'unit', url: 'chrome-extension://unit/index.html' },
+  );
+
+  expect(response).toMatchObject({ ok: true, tabId: 7 });
+  expect(bg.chrome.tabs.get).toHaveBeenCalledWith(7);
+  expect(bg.chrome.tabs.query).not.toHaveBeenCalled();
+});
+
 test('side panel can float SprintX over the active webpage without opening a new OS window', async () => {
   const bg = await background();
   const response = await bg.message(
-    { type: 'sprintx:float-over-page', sourceWindowId: 9 },
+    { type: 'sprintx:float-over-page', sourceWindowId: 9, sourceTabId: 7 },
     { id: 'unit', url: 'chrome-extension://unit/index.html' },
   );
   expect(response).toMatchObject({ ok: true, tabId: 7 });
-  expect(bg.chrome.tabs.query).toHaveBeenCalledWith({ active: true, windowId: 9 });
+  expect(bg.chrome.tabs.get).toHaveBeenCalledWith(7);
+  expect(bg.chrome.tabs.query).not.toHaveBeenCalled();
   expect(bg.chrome.scripting.executeScript).toHaveBeenCalled();
   expect(bg.chrome.windows.create).not.toHaveBeenCalled();
   expect(bg.store['overlay:7']).toMatchObject({
@@ -215,7 +236,7 @@ test('side panel can float SprintX over the active webpage without opening a new
 test('floating iframe authorization does not depend on child-frame webNavigation metadata', async () => {
   const bg = await background();
   await bg.message(
-    { type: 'sprintx:float-over-page', sourceWindowId: 9 },
+    { type: 'sprintx:float-over-page', sourceWindowId: 9, sourceTabId: 7 },
     { id: 'unit', url: 'chrome-extension://unit/index.html' },
   );
   bg.chrome.webNavigation.getFrame.mockImplementation(async ({ frameId }: any) =>
