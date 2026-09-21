@@ -414,6 +414,23 @@ test('Attach ends the floating window session and restores the global native sid
   expect(bg.store['overlay:7']).toBeUndefined();
 });
 
+test('background Close message ends the window floating session', async () => {
+  const bg = await background();
+  await bg.message(
+    { type: 'sprintx:float-over-page', sourceWindowId: 9, sourceTabId: 7 },
+    { id: 'unit', url: 'chrome-extension://unit/index.html' },
+  );
+
+  const response = await bg.message(
+    { type: 'sprintx:close', nonce: 'secure-nonce' },
+    { id: 'unit', tab: { id: 7, windowId: 9 }, frameId: 0, documentId: 'top-document' },
+  );
+
+  expect(response).toEqual({ ok: true });
+  expect(bg.store['floating-window:9']).toBeUndefined();
+  expect(bg.store['overlay:7']).toBeUndefined();
+});
+
 test('Close ends floating mode while minimize remains local to the shell', async () => {
   const host = overlay();
   host.scope.__sprintxOverlay.invoke('nonce');
